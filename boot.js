@@ -92,6 +92,10 @@ async function boot(options = {}) {
     });
   }
 
+  // --- Math helpers ---
+  await $.define('math.ceil', (x) => Math.ceil(x));
+  await $.define('math.floor', (x) => Math.floor(x));
+
   // --- JSON (ShenScript already provides json.parse and json.str) ---
   // No additional registration needed
 
