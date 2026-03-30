@@ -1,0 +1,18 @@
+{
+  "name": "witness",
+  "version": "0.1.0",
+  "description": "Shen extension that makes layout overflow a compile-time type error",
+  "main": "boot.js",
+  "bin": {
+    "witness": "./cli/check.js"
+  },
+  "scripts": {
+    "test": "node test/smoke.js",
+    "smoke": "node test/smoke.js"
+  },
+  "dependencies": {
+    "canvas": "^3.2.2",
+    "shen-script": "file:./shen-script-0.17.0.tgz",
+    "textura": "^1.1.1"
+  }
+}

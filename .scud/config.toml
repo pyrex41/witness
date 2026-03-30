@@ -1,0 +1,33 @@
+[rho]
+  model = "grok-4.20-beta-0309-reasoning"
+  fast_model = "grok-code-fast-1"
+  smart_model = "grok-4.20-beta-0309-reasoning"
+
+[swarm]
+  round_size = 5
+  max_ralph_attempts = 3
+  task_timeout_secs = 600
+  [swarm.tiers]
+    fast = "grok-code-fast-1"
+    standard = "grok-4.20-beta-0309-reasoning"
+    smart = "grok-4.20-beta-0309-reasoning"
+  [swarm.backpressure]
+    stop_on_failure = true
+    timeout_secs = 300
+
+[heavy]
+  model = ""
+  concurrency = 4
+  timeout_secs = 300
+  max_agents = 0
+
+[llm]
+  provider = "xai"
+  model = "grok-4.20-multi-agent-beta-0309"
+  smart_provider = "xai-responses"
+  smart_model = "grok-4.20-multi-agent-beta-0309"
+  fast_provider = "xai"
+  fast_model = "grok-code-fast-1"
+  multi_agent_model = "grok-4.20-multi-agent-beta-0309"
+  multi_agent_effort = "low"
+  max_tokens = 4096

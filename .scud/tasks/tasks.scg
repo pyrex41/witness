@@ -1,0 +1,147 @@
+# SCUD Graph v1
+# Phase: init
+
+@meta {
+  name init
+  updated 2026-03-30T14:26:06Z
+}
+
+@nodes
+# id | title | status | complexity | priority
+1 | Initialize project structure and dependencies | P | 2 | H
+2 | Implement Textura interop in boot.js | P | 3 | H
+3 | Define tiered layout proof types in proofs.shen | X | 5 | H
+3.1 | Define tiered datatype declarations (layout-proofs with tier tags, text-node-types, overflow-types, perf-proofs) | P | 0 | H
+3.2 | Implement measure, fits?, and related functions with type checking | P | 0 | H
+3.3 | Implement proof erasure — strip proof code from production output | P | 3 | H
+4 | Implement node types and Textura bridge in layout.shen | X | 5 | H
+4.1 | Define node-types datatype | P | 0 | H
+4.2 | Implement Textura bridge and layout solver | P | 0 | H
+5 | Build TEA runtime in tea.shen | X | 8 | H
+5.1 | Define cmd-types and sub-types datatypes | P | 0 | H
+5.2 | Implement TEA runtime functions | P | 0 | H
+6 | Develop DOM renderer in dom.shen | X | 5 | H
+6.1 | Implement dom-renderer function | P | 0 | H
+6.2 | Implement render-to-dom function | P | 0 | H
+7 | Create Tailwind bridge in tailwind.shen | X | 5 | H
+7.1 | Define defcc grammar for <tw-class> and <tw-size> | P | 0 | H
+7.2 | Implement tw-macro for class list conversion | P | 0 | H
+8 | Implement error messages in errors.shen | P | 3 | H
+9 | Build Figma structural verification in figma.shen | X | 8 | H
+9.1 | Parse Figma JSON and convert to positions | P | 0 | H
+9.2 | Solve layout, diff with code, and return results | P | 0 | H
+10 | Develop agent loop in cli/agent.js | P | 3 | H
+11 | Implement CLI tier controls (dev/build/check --full/--figma/--perf) | P | 5 | H
+
+@edges
+# dependent -> dependency
+2 -> 1
+3 -> 2
+3.2 -> 3.1
+3.3 -> 3.1
+4 -> 3
+4.2 -> 4.1
+5 -> 4
+5.2 -> 5.1
+6 -> 4
+6 -> 5
+6.2 -> 6.1
+7 -> 4
+7.2 -> 7.1
+8 -> 3
+9 -> 4
+9 -> 5
+9 -> 8
+9.2 -> 9.1
+10 -> 2
+10 -> 7
+10 -> 8
+10 -> 9
+11 -> 3
+11 -> 10
+
+@parents
+# parent: child1, child2
+3: 3.1, 3.2, 3.3
+4: 4.1, 4.2
+5: 5.1, 5.2
+6: 6.1, 6.2
+7: 7.1, 7.2
+9: 9.1, 9.2
+
+@agents
+# id | agent_type | model_tier
+1 | fast-builder | fast
+2 | builder | standard
+3 | builder | standard
+3.1 | builder | standard
+3.2 | builder | standard
+4 | builder | standard
+4.1 | builder | standard
+4.2 | builder | standard
+5 | builder | smart
+5.1 | builder | smart
+5.2 | builder | smart
+6 | builder | standard
+6.1 | builder | standard
+6.2 | builder | standard
+7 | builder | standard
+7.1 | builder | standard
+7.2 | builder | standard
+8 | builder | standard
+9 | builder | smart
+9.1 | builder | smart
+9.2 | builder | smart
+10 | builder | standard
+11 | builder | standard
+3.3 | builder | standard
+
+@details
+1 | description |
+  Set up the witness/ directory structure with package.json, boot.js, shen/ folder, cli/ folder, and examples/ folder. Configure dependencies for shen-script and textura in package.json. Ensure basic project scaffolding is in place for development.
+2 | description |
+  Register Textura native functions (computeLayout, measure), DOM interop functions (create-element, set-style, etc.), JSON functions, and HTTP fetch in boot.js. Load the witness.shen file at the end. Ensure all registrations are correct for ShenScript integration.
+3 | description |
+  Implement tiered datatype declarations for layout-proofs, text-node-types, overflow-types, and perf-proofs. Proofs are build-time assertions erased after compilation. Tier 1 (static text) runs always; Tier 2 (bounded worst-case) runs on build; Tier 3 (Figma/i18n/perf) runs pre-release; Tier 4 (runtime fits?) is opt-in production code.
+3.1 | description |
+  Create the tiered datatype declarations in proofs.shen: layout-proofs with tier-tagged rules (tier 1 static, tier 2 bounded), text-node-types, overflow-types, and perf-proofs for frame budget verification.
+3.2 | description |
+  Define the functions measure, fits?, and any related functions in proofs.shen, ensuring type checking is enabled and proofs enforce layout constraints based on the defined datatypes.
+4 | description |
+  Define node-types datatype and implement to-textura function to convert Witness nodes to Textura trees. Add solve-layout function to run the layout solver. Ensure proper mapping for frames, text nodes, and spacers.
+4.1 | description |
+  Define the node-types datatype in layout.shen to represent Witness nodes, including types for frames, text nodes, and spacers.
+4.2 | description |
+  Implement the to-textura function to convert Witness nodes to Textura trees, and add the solve-layout function to run the layout solver with proper mappings.
+5 | description |
+  Implement Elm architecture functions: run-app, dispatch, render-frame, schedule-render. Define cmd-types and sub-types datatypes. Add execute-cmd and related helpers for commands and subscriptions.
+5.1 | description |
+  Create Shen datatypes for command types (cmd-types) and subscription types (sub-types) to represent commands and subscriptions in the TEA architecture.
+5.2 | description |
+  Implement the core Elm architecture functions: run-app, dispatch, render-frame, schedule-render, and execute-cmd along with related helpers for handling commands and subscriptions.
+6 | description |
+  Implement dom-renderer function to create a renderer for a given container ID. Add render-to-dom to walk computed layout and emit positioned DOM nodes with styles. Handle text nodes, children, and absolute positioning.
+6.1 | description |
+  Create the dom-renderer function that takes a container ID and returns a renderer function capable of rendering DOM elements into the specified container. This involves setting up the initial container reference and preparing the rendering environment.
+6.2 | description |
+  Develop the render-to-dom function to walk the computed layout tree, emitting positioned DOM nodes with appropriate styles. Ensure it handles text nodes, recursive children rendering, and absolute positioning correctly.
+7 | description |
+  Define defcc grammar for <tw-class> and <tw-size> to parse Tailwind classes into Textura props. Implement tw-macro to convert class lists into frame nodes with properties.
+7.1 | description |
+  Implement the Shen defcc grammar rules for <tw-class> and <tw-size> to parse Tailwind CSS classes into corresponding Textura properties.
+7.2 | description |
+  Create the tw-macro function that uses the defined grammar to convert lists of Tailwind classes into frame nodes with appropriate Textura properties.
+8 | description |
+  Define make-layout-error function to generate structured JSON error reports with code, category, message, and suggestions. Include ranking of fixes by effort and confidence.
+9 | description |
+  Implement verify-figma to parse Figma JSON, convert to positions, solve layout, and diff against code layout with tolerance. Return pass/fail results with diffs.
+9.1 | description |
+  Implement the initial part of verify-figma function to parse Figma JSON input and convert it into a positions data structure for layout analysis.
+9.2 | description |
+  Complete verify-figma by solving the layout from positions, comparing against code layout with tolerance, computing diffs, and returning pass/fail results.
+10 | description |
+  Implement agent function to boot Shen environment, check for errors, apply suggested edits iteratively up to max iterations. Integrate with check-all and applyEdit for self-correction.
+3.3 | description |
+  Implement proof erasure so that proof code is stripped from production output, analogous to TypeScript type erasure. Only explicit fits? runtime branches survive into the bundle. All tier 1-3 proof machinery is removed after compilation.
+11 | description |
+  Implement CLI tier controls: `witness dev` (tier 1 only, instant), `witness build` (tier 1+2, fast), `witness check --full` (tier 1+2+3, thorough), `witness check --figma` (tier 3 Figma diff only), `witness check --perf` (performance budget proofs). Controls which proof tiers run at each stage.
