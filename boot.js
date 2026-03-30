@@ -92,6 +92,9 @@ async function boot(options = {}) {
     });
   }
 
+  // --- JS interop helpers ---
+  await $.define('js.undefined?', (x) => $.asShenBool(x === undefined));
+
   // --- Math helpers ---
   await $.define('math.ceil', (x) => Math.ceil(x));
   await $.define('math.floor', (x) => Math.floor(x));
