@@ -7,6 +7,7 @@
 (load "shen/proofs.shen")
 (load "shen/layout.shen")
 (load "shen/errors.shen")
+(load "shen/tea.shen")
 (load "shen/tailwind.shen")
 
 \\ Enable type checking for all subsequent code
