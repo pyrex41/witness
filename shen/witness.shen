@@ -5,6 +5,8 @@
 \\ so user code (apps, components) is verified against proof rules.
 
 (load "shen/proofs.shen")
+(load "shen/layout.shen")
+(load "shen/errors.shen")
 
 \\ Enable type checking for all subsequent code
 (tc +)
