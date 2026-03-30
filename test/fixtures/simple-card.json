@@ -1,0 +1,14 @@
+{
+  "name": "Card",
+  "absoluteBoundingBox": { "x": 0, "y": 0, "width": 300, "height": 200 },
+  "children": [
+    {
+      "name": "Title",
+      "absoluteBoundingBox": { "x": 16, "y": 16, "width": 268, "height": 32 }
+    },
+    {
+      "name": "Body",
+      "absoluteBoundingBox": { "x": 16, "y": 64, "width": 268, "height": 120 }
+    }
+  ]
+}
