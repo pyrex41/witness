@@ -4,11 +4,14 @@
   "description": "Shen extension that makes layout overflow a compile-time type error",
   "main": "boot.js",
   "bin": {
-    "witness": "./cli/check.js"
+    "witness": "./cli/check.js",
+    "witness-verify": "./cli/verify.js",
+    "witness-agent": "./cli/agent.js"
   },
   "scripts": {
-    "test": "node test/smoke.js",
-    "smoke": "node test/smoke.js"
+    "test": "node test/smoke.js && node test/cli.test.js",
+    "smoke": "node test/smoke.js",
+    "test:cli": "node test/cli.test.js"
   },
   "dependencies": {
     "canvas": "^3.2.2",
