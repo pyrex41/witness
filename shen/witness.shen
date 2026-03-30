@@ -9,6 +9,7 @@
 (load "shen/errors.shen")
 (load "shen/tea.shen")
 (load "shen/tailwind.shen")
+(load "shen/dom.shen")
 
 \\ Enable type checking for all subsequent code
 (tc +)
