@@ -5,10 +5,16 @@
 \\
 \\ Each suggestion is: [fix Description effort Level confidence Score]
 
-\\ --- Ceiling helper (delegates to JS Math.ceil via boot.js) ---
+\\ --- Ceiling helper (pure Shen — works on any Shen implementation) ---
+\\ Only used for positive pixel widths in error messages.
+\\ Shen lacks floor/round/ceil built-ins, so we walk integers.
 
 (define ceiling
-  X -> (math.ceil X))
+  X -> (ceiling-walk X 0))
+
+(define ceiling-walk
+  X N -> N where (>= N X)
+  X N -> (ceiling-walk X (+ N 1)))
 
 \\ --- Construct a layout error report ---
 

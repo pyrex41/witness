@@ -10,6 +10,8 @@ Commands:
     --full              Tier 1 + 2 + 3 (comprehensive)
     --figma <spec.json> Tier 3 only (Figma structural diff)
     --perf              Performance budget proofs
+    --sbcl              Use SBCL Shen for proof checking (faster)
+  measure <files...>    Pre-compute text measurements for SBCL proof checking
   help                  Show this help`;
 
 async function main() {
@@ -18,6 +20,26 @@ async function main() {
 
   if (command === 'help' || command === '--help') {
     console.log(HELP);
+    return;
+  }
+
+  // measure command — delegates to cli/measure.js
+  if (command === 'measure') {
+    const { execSync } = require('child_process');
+    const measureFiles = args.slice(1);
+    execSync(`node ${__dirname}/measure.js ${measureFiles.join(' ')}`, { stdio: 'inherit' });
+    return;
+  }
+
+  // --sbcl flag — delegates to bin/witness-check.sh
+  if (args.includes('--sbcl')) {
+    const { execSync } = require('child_process');
+    const sbclFiles = args.filter(a => !a.startsWith('--') && a !== command);
+    try {
+      execSync(`bash ${__dirname}/../bin/witness-check.sh ${sbclFiles.join(' ')}`, { stdio: 'inherit' });
+    } catch (e) {
+      process.exitCode = 1;
+    }
     return;
   }
 

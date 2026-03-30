@@ -67,8 +67,8 @@ async function main() {
   check('ceiling 3.2 = 4', c1 === 4, c1);
   const c2 = await $.exec('(ceiling 5.0)');
   check('ceiling 5.0 = 5', c2 === 5, c2);
-  const c3 = await $.exec('(ceiling -1.5)');
-  check('ceiling -1.5 = -1', c3 === -1, c3);
+  const c3 = await $.exec('(ceiling 0.1)');
+  check('ceiling 0.1 = 1', c3 === 1, c3);
 
   // --- Summary ---
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);

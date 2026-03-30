@@ -14,10 +14,22 @@
 \\ NOTE: (tc +) is enabled by witness.shen AFTER this file loads,
 \\ so user code is type-checked but framework code is not.
 
-\\ --- Measure text width (calls Pretext under the hood) ---
+\\ --- Measure text width ---
+\\ Two paths:
+\\   1. If *measurements* is set (SBCL path): pure Shen cache lookup
+\\   2. Otherwise (ShenScript path): calls Pretext via textura.measure
+\\ This lets proof checking run on any Shen implementation.
 
 (define measure
-  Text Font -> (textura.measure Text Font))
+  Text Font -> (if (trap-error (do (value *measurements*) true) (/. _ false))
+                   (lookup-measurement Text Font (value *measurements*))
+                   (textura.measure Text Font)))
+
+(define lookup-measurement
+  Text Font [[Text Font W] | _] -> W
+  Text Font [_ | Rest] -> (lookup-measurement Text Font Rest)
+  Text Font [] -> (simple-error
+                    (cn "No cached measurement for: '" (cn Text (cn "' in " Font)))))
 
 (define fits?
   Text Font MaxW -> (<= (measure Text Font) MaxW))
