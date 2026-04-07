@@ -58,7 +58,7 @@ async function main() {
   check('formatted output contains error code', formatted.includes('[W0200]'), formatted);
   check('formatted output contains Suggestions:', formatted.includes('Suggestions:'), formatted);
   check('formatted output contains fix description', formatted.includes('Add truncate'), formatted);
-  check('formatted output contains widen suggestion', formatted.includes('Widen to 121px'), formatted);
+  check('formatted output contains widen suggestion', formatted.includes('Widen container to 121px'), formatted);
   console.log('\n  Formatted output:\n' + formatted.split('\n').map(l => '    ' + l).join('\n'));
 
   // --- ceiling helper ---

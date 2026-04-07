@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// witness verify <figma.json> <shen-file> [tolerance]
+// witness verify <figma.json> <shen-file> [tolerance] [--expr <shen-expr>]
 // Figma structural verification wrapper
 const { boot } = require('../boot');
 
@@ -7,25 +7,31 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length < 2) {
-    console.error('Usage: witness verify <figma.json> <shen-file> [tolerance]');
-    console.error('  Compares Figma design export against computed Shen layout.');
+    console.error(`Usage: witness verify <figma.json> <shen-file> [tolerance] [--expr <shen-expr>]
+  Compares Figma design export against computed Shen layout.
+  --expr <shen>   Shen expression returning a node (default: render-view)`);
     process.exitCode = 1;
     return;
   }
 
-  const [figmaJson, shenFile] = args;
-  const tolerance = args[2] || '2';
+  const exprIdx = args.indexOf('--expr');
+  const expr = exprIdx !== -1 ? args[exprIdx + 1] : '(render-view)';
+  const positional = args.filter((a, i) => !a.startsWith('--') && (exprIdx === -1 || (i !== exprIdx && i !== exprIdx + 1)));
+
+  const [figmaJson, shenFile] = positional;
+  const tolerance = positional[2] || '2';
 
   console.log(`Verifying ${shenFile} against Figma spec ${figmaJson} (tolerance: ${tolerance}px)...`);
 
   const $ = await boot();
+  await $.exec('(tc -)');
   await $.load(shenFile);
 
-  const result = await $.exec(`(verify-figma "${figmaJson}" [] ${tolerance})`);
+  const result = await $.exec(`(verify-figma "${figmaJson}" ${expr} ${tolerance})`);
   const arr = $.toArray(result);
 
-  if (arr[0] === 'pass') {
-    console.log(`  \u2713 ${arr[1]}`);
+  if (arr[0] === 'pass' || (typeof arr[0] === 'symbol' && $.nameOf(arr[0]) === 'pass')) {
+    console.log(`  \u2713 ${arr[1] || 'All nodes within tolerance'}`);
   } else {
     console.error('  \u2717 Structural drift detected:');
     for (let i = 1; i < arr.length; i++) {

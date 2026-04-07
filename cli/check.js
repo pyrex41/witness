@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const fs = require('fs');
 const { boot } = require('../boot');
 
 const HELP = `Usage: witness <command> [options] [files...]
@@ -11,6 +12,8 @@ Commands:
     --figma <spec.json> Tier 3 only (Figma structural diff)
     --perf              Performance budget proofs
     --sbcl              Use SBCL Shen for proof checking (faster)
+  render <file.shen>    Render layout to HTML (SSR)
+    --output <file>     Write to file (default: stdout)
   measure <files...>    Pre-compute text measurements for SBCL proof checking
   help                  Show this help`;
 
@@ -20,6 +23,47 @@ async function main() {
 
   if (command === 'help' || command === '--help') {
     console.log(HELP);
+    return;
+  }
+
+  // render command — SSR: load file, compute layout, emit HTML
+  if (command === 'render') {
+    const flagArgs = new Map();
+    const renderFiles = [];
+    const flags = ['--output', '--expr', '--width', '--height'];
+    for (let i = 1; i < args.length; i++) {
+      if (flags.includes(args[i]) && i + 1 < args.length) {
+        flagArgs.set(args[i], args[++i]);
+      } else if (!args[i].startsWith('--')) {
+        renderFiles.push(args[i]);
+      }
+    }
+    if (!renderFiles.length) {
+      console.error(`Usage: witness render <file.shen> [options]
+  --output <file>   Write HTML to file (default: stdout)
+  --expr <shen>     Shen expression returning a node (default: render-view)
+  --width <px>      Viewport width (default: 800)
+  --height <px>     Viewport height (default: 600)`);
+      process.exitCode = 1;
+      return;
+    }
+    const width = parseInt(flagArgs.get('--width') || '800', 10);
+    const height = parseInt(flagArgs.get('--height') || '600', 10);
+    const expr = flagArgs.get('--expr') || '(render-view)';
+    const outputFile = flagArgs.get('--output');
+
+    const $ = await boot();
+    await $.exec('(tc -)');
+    await $.load(renderFiles[0]);
+    const htmlStr = await $.exec(
+      `(render-html-doc (solve-layout ${expr} ${width} ${height}))`
+    );
+    if (outputFile) {
+      fs.writeFileSync(outputFile, htmlStr);
+      console.log(`Wrote ${outputFile}`);
+    } else {
+      console.log(htmlStr);
+    }
     return;
   }
 

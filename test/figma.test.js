@@ -30,33 +30,37 @@ async function main() {
   check('is valid JSON', (() => { try { JSON.parse(content); return true; } catch { return false; } })(), 'invalid JSON');
 
   // --- figma-json->positions ---
+  // Now returns [named-position Name X Y W H] format
   console.log('\nfigma-json->positions:');
   const positions = await $.exec(`(figma-json->positions (json.parse (read-file-string "${fixturePath}")))`);
   const posArr = $.toArray(positions);
   check('returns a list', Array.isArray(posArr), typeof posArr);
   check('has 3 nodes (root + 2 children)', posArr.length === 3, posArr.length);
 
-  // Check root position
+  // Check root position: [named-position Name X Y W H]
   const root = $.toArray(posArr[0]);
-  check('root tag is position', isSym(root[0], 'position'), $.nameOf(root[0]));
-  check('root x is 0', root[1] === 0, root[1]);
-  check('root y is 0', root[2] === 0, root[2]);
-  check('root width is 300', root[3] === 300, root[3]);
-  check('root height is 200', root[4] === 200, root[4]);
+  check('root tag is named-position', isSym(root[0], 'named-position'), $.nameOf(root[0]));
+  check('root name is "Card"', root[1] === 'Card', root[1]);
+  check('root x is 0', root[2] === 0, root[2]);
+  check('root y is 0', root[3] === 0, root[3]);
+  check('root width is 300', root[4] === 300, root[4]);
+  check('root height is 200', root[5] === 200, root[5]);
 
   // Check first child (Title)
   const title = $.toArray(posArr[1]);
-  check('title x is 16', title[1] === 16, title[1]);
-  check('title y is 16', title[2] === 16, title[2]);
-  check('title width is 268', title[3] === 268, title[3]);
-  check('title height is 32', title[4] === 32, title[4]);
+  check('title name is "Title"', title[1] === 'Title', title[1]);
+  check('title x is 16', title[2] === 16, title[2]);
+  check('title y is 16', title[3] === 16, title[3]);
+  check('title width is 268', title[4] === 268, title[4]);
+  check('title height is 32', title[5] === 32, title[5]);
 
   // --- layout->positions ---
+  // Layout positions have empty names (code doesn't carry names)
   console.log('\nlayout->positions:');
   const layoutPositions = await $.exec(`
     (layout->positions
       (solve-layout
-        [frame (mk-props 300 200 "column" 0 0 "" "" 0 0)
+        [frame (mk-props9 300 200 "column" 0 0 "" "" 0 0)
           [[spacer 268 32]
            [spacer 268 120]]]
         300 200))`);
@@ -65,12 +69,13 @@ async function main() {
   check('has 3 positions (root + 2 children)', lpArr.length === 3, lpArr.length);
 
   const lpRoot = $.toArray(lpArr[0]);
-  check('layout root tag is position', isSym(lpRoot[0], 'position'), $.nameOf(lpRoot[0]));
-  check('layout root x is 0', lpRoot[1] === 0, lpRoot[1]);
-  check('layout root y is 0', lpRoot[2] === 0, lpRoot[2]);
+  check('layout root tag is named-position', isSym(lpRoot[0], 'named-position'), $.nameOf(lpRoot[0]));
+  check('layout root name is empty', lpRoot[1] === '', lpRoot[1]);
+  check('layout root x is 0', lpRoot[2] === 0, lpRoot[2]);
+  check('layout root y is 0', lpRoot[3] === 0, lpRoot[3]);
 
-  // --- diff-positions: matching ---
-  console.log('\ndiff-positions (matching):');
+  // --- diff-positions: matching (legacy [position] format) ---
+  console.log('\ndiff-positions (matching, legacy format):');
   const noDiffs = await $.exec(`
     (diff-positions
       [[position 0 0 300 200] [position 16 16 268 32]]
@@ -79,7 +84,7 @@ async function main() {
   const noDiffArr = $.toArray(noDiffs);
   check('matching positions produce empty diffs', noDiffArr.length === 0, noDiffArr.length);
 
-  // --- diff-positions: within tolerance ---
+  // --- diff-positions: within tolerance (legacy format) ---
   console.log('\ndiff-positions (within tolerance):');
   const tolDiffs = await $.exec(`
     (diff-positions
@@ -89,7 +94,7 @@ async function main() {
   const tolDiffArr = $.toArray(tolDiffs);
   check('positions within tolerance produce empty diffs', tolDiffArr.length === 0, tolDiffArr.length);
 
-  // --- diff-positions: mismatched ---
+  // --- diff-positions: mismatched (legacy format) ---
   console.log('\ndiff-positions (mismatched):');
   const diffs = await $.exec(`
     (diff-positions
@@ -98,12 +103,10 @@ async function main() {
       2)`);
   const diffArr = $.toArray(diffs);
   check('mismatched positions produce diffs', diffArr.length > 0, diffArr.length);
-
-  // Check the diff content — should report x, y, w, h differences
   const firstDiff = $.toArray(diffArr[0]);
   check('diff contains multiple fields', firstDiff.length > 0, firstDiff.length);
 
-  // --- diff-positions: count mismatch ---
+  // --- diff-positions: count mismatch (legacy format) ---
   console.log('\ndiff-positions (count mismatch):');
   const countDiffs = await $.exec(`
     (diff-positions
@@ -114,6 +117,26 @@ async function main() {
   check('count mismatch produces diff', countDiffArr.length > 0, countDiffArr.length);
   const mismatch = $.toArray(countDiffArr[0]);
   check('count mismatch tag', isSym(mismatch[0], 'count-mismatch'), $.nameOf(mismatch[0]));
+
+  // --- diff-positions: name-based matching ---
+  console.log('\ndiff-positions (name-based matching):');
+  const namedNoDiffs = await $.exec(`
+    (diff-positions
+      [[named-position "Title" 16 16 268 32] [named-position "Body" 16 64 268 120]]
+      [[named-position "Body" 16 64 268 120] [named-position "Title" 16 16 268 32]]
+      2)`);
+  const namedNoDiffArr = $.toArray(namedNoDiffs);
+  check('name-matched reordered positions produce no diffs', namedNoDiffArr.length === 0, namedNoDiffArr.length);
+
+  // --- diff-positions: name-based with drift ---
+  console.log('\ndiff-positions (name-based with drift):');
+  const namedDrifts = await $.exec(`
+    (diff-positions
+      [[named-position "Title" 16 16 268 32]]
+      [[named-position "Title" 50 50 200 100]]
+      2)`);
+  const namedDriftArr = $.toArray(namedDrifts);
+  check('name-matched with drift produces diffs', namedDriftArr.length > 0, namedDriftArr.length);
 
   // --- abs helper ---
   console.log('\nabs helper:');
@@ -126,13 +149,10 @@ async function main() {
 
   // --- verify-figma: matching layout ---
   console.log('\nverify-figma (matching layout):');
-  // Figma fixture: root (0,0,300,200), title (16,16,268,32), body (16,64,268,120)
-  // With padding=16, column direction, gap=16:
-  //   root: (0,0,300,200), child0: (16,16,268,32), child1: (16,64,268,120)
   const passResult = await $.exec(`
     (verify-figma
       "${fixturePath}"
-      [frame (mk-props 300 200 "column" 16 16 "" "" 0 0)
+      [frame (mk-props9 300 200 "column" 16 16 "" "" 0 0)
         [[spacer 268 32]
          [spacer 268 120]]]
       2)`);
@@ -144,7 +164,7 @@ async function main() {
   const failResult = await $.exec(`
     (verify-figma
       "${fixturePath}"
-      [frame (mk-props 400 300 "row" 0 0 "" "" 0 0)
+      [frame (mk-props9 400 300 "row" 0 0 "" "" 0 0)
         [[spacer 100 100]
          [spacer 100 100]]]
       2)`);

@@ -3,11 +3,13 @@
 \\ Error reports are Shen lists with this shape:
 \\   [error-report Code Domain Message Suggestions]
 \\
-\\ Each suggestion is: [fix Description effort Level confidence Score]
+\\ Each suggestion is: [fix Description effort Level confidence Score Edit]
+\\ Edit is one of:
+\\   [no-edit]                    — manual fix needed
+\\   [widen OldWidth NewWidth]    — change container width
 
 \\ --- Ceiling helper (pure Shen — works on any Shen implementation) ---
 \\ Only used for positive pixel widths in error messages.
-\\ Shen lacks floor/round/ceil built-ins, so we walk integers.
 
 (define ceiling
   X -> (ceiling-walk X 0))
@@ -20,13 +22,15 @@
 
 (define make-layout-error
   Text Font MeasuredW AvailW ->
-    [error-report
-      "W0200"
-      "layout-proof"
-      (cn Text (cn " in " (cn Font (cn " = " (cn (str MeasuredW) (cn "px, container = " (cn (str AvailW) "px")))))))
-      [[fix "Add truncate" effort "trivial" confidence 1.0]
-       [fix (cn "Widen to " (cn (str (ceiling MeasuredW)) "px")) effort "trivial" confidence 0.95]
-       [fix "Use smaller font" effort "small" confidence 0.9]]])
+    (let CeilW (ceiling MeasuredW)
+      [error-report
+        "W0200"
+        "layout-proof"
+        (cn Text (cn " in " (cn Font (cn " = " (cn (str MeasuredW) (cn "px, container = " (cn (str AvailW) "px")))))))
+        [[fix "Add truncate/ellipsis overflow" effort "trivial" confidence 1.0 edit [no-edit]]
+         [fix (cn "Widen container to " (cn (str CeilW) "px")) effort "trivial" confidence 0.95
+              edit [widen AvailW CeilW]]
+         [fix "Use smaller font" effort "small" confidence 0.9 edit [no-edit]]]]))
 
 \\ --- Error report accessors ---
 
@@ -39,10 +43,19 @@
 (define error-suggestions
   [error-report _ _ _ Suggestions] -> Suggestions)
 
+\\ --- Suggestion accessors ---
+
+(define suggestion-description
+  [fix Desc | _] -> Desc)
+
+(define suggestion-edit
+  [fix _ effort _ confidence _ edit E] -> E
+  _ -> [no-edit])
+
 \\ --- Format a single suggestion as a string ---
 
 (define format-suggestion
-  [fix Desc effort Level confidence Score] ->
+  [fix Desc effort Level confidence Score | _] ->
     (cn "  - " (cn Desc (cn " [" (cn Level (cn ", confidence=" (cn (str Score) "]")))))))
 
 \\ --- Format suggestion list ---
@@ -74,6 +87,8 @@
 (declare error-code [[list A] --> string])
 (declare error-message [[list A] --> string])
 (declare error-suggestions [[list A] --> [list [list A]]])
+(declare suggestion-description [[list A] --> string])
+(declare suggestion-edit [[list A] --> [list A]])
 (declare format-suggestion [[list A] --> string])
 (declare format-suggestions [[list [list A]] --> string])
 (declare format-error [[list A] --> string])

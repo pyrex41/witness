@@ -18,6 +18,30 @@ if (typeof globalThis.OffscreenCanvas === 'undefined') {
 
 const { prepareWithSegments, layoutWithLines } = require('@chenglou/pretext');
 
+let systemFontFamilies = null;
+function loadSystemFonts() {
+  if (systemFontFamilies !== null) return;
+  try {
+    const { execSync } = require('child_process');
+    const output = execSync('fc-list : family', { encoding: 'utf8', timeout: 5000 });
+    systemFontFamilies = new Set(
+      output.split('\n').map(l => l.trim().toLowerCase()).filter(Boolean)
+        .flatMap(l => l.split(',').map(f => f.trim()))
+    );
+  } catch (_) {
+    systemFontFamilies = false;
+  }
+}
+
+function isFontAvailable(fontSpec) {
+  const generics = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'];
+  const family = fontSpec.replace(/^[\d.]+px\s*/, '').trim();
+  if (generics.includes(family.toLowerCase())) return true;
+  loadSystemFonts();
+  if (systemFontFamilies) return systemFontFamilies.has(family.toLowerCase());
+  return true; // Can't detect; skip warning
+}
+
 function measureText(text, font) {
   const prepared = prepareWithSegments(String(text), String(font));
   const result = layoutWithLines(prepared, 1e7, 20);
@@ -90,7 +114,15 @@ async function main() {
     return;
   }
 
-  // Measure each pair
+  // Check font availability and measure each pair
+  const warnedFonts = new Set();
+  for (const { font } of unique) {
+    if (!warnedFonts.has(font) && !isFontAvailable(font)) {
+      console.warn(`  WARNING: Font not available: ${font} — measurements may be inaccurate`);
+      warnedFonts.add(font);
+    }
+  }
+
   const measurements = unique.map(({ text, font }) => {
     const width = measureText(text, font);
     return { text, font, width };

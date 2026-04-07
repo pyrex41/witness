@@ -11,11 +11,11 @@
 
 \\ --- Static text proofs (Tier 1: checked at load time) ---
 \\ Compiler verifies these fit at file-load time (~1ms)
-\\ measure("-", Inter 14) = 7px.  7 <= 96 OK
-\\ measure("+", Inter 14) = 11px. 11 <= 96 OK
+\\ measure("-", sans-serif 14) checks OK
+\\ measure("+", sans-serif 14) checks OK
 
-(assert-fits "-" (mk-font "Inter" 14) 96)
-(assert-fits "+" (mk-font "Inter" 14) 96)
+(assert-fits "-" (mk-font "sans-serif" 14) 96)
+(assert-fits "+" (mk-font "sans-serif" 14) 96)
 
 \\ --- Init ---
 
@@ -37,7 +37,7 @@
 (define counter-view
   (@p count N) ->
     (tw [flex flex-col items-center gap-4 p-8]
-      [(text-node (handled-text (str N) (mk-font "Inter" 32) visible))
+      [(text-node (handled-text (str N) (mk-font "sans-serif" 32) visible))
        (tw [flex gap-2]
          [(counter-button "-" decrement)
           (counter-button "+" increment)])]))
@@ -48,7 +48,7 @@
 (define counter-button
   Label Msg ->
     (tw [px-4 py-2 rounded-lg text-sm font-medium]
-      [(text-node (proven-text Label (mk-font "Inter" 14) 96))]))
+      [(text-node (proven-text Label (mk-font "sans-serif" 14) 96))]))
 
 \\ --- Run the app (requires DOM; omitted for CLI checking) ---
 \\ (run-app (mk-app counter-init counter-update counter-view (/. _ sub-none))

@@ -17,25 +17,25 @@ async function main() {
   // --- Props tests ---
   console.log('Frame props:');
 
-  const w = await $.exec('(get-width (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const w = await $.exec('(get-width (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-width returns 100', w === 100, w);
 
-  const h = await $.exec('(get-height (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const h = await $.exec('(get-height (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-height returns 200', h === 200, h);
 
-  const dir = await $.exec('(get-direction (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const dir = await $.exec('(get-direction (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-direction returns "row"', dir === 'row', dir);
 
-  const gap = await $.exec('(get-gap (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const gap = await $.exec('(get-gap (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-gap returns 8', gap === 8, gap);
 
-  const pad = await $.exec('(get-padding (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const pad = await $.exec('(get-padding (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-padding returns 16', pad === 16, pad);
 
-  const grow = await $.exec('(get-grow (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const grow = await $.exec('(get-grow (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-grow returns 1', grow === 1, grow);
 
-  const shrink = await $.exec('(get-shrink (mk-props 100 200 "row" 8 16 "center" "center" 1 0))');
+  const shrink = await $.exec('(get-shrink (mk-props9 100 200 "row" 8 16 "center" "center" 1 0))');
   check('get-shrink returns 0', shrink === 0, shrink);
 
   // --- default-props ---
@@ -64,7 +64,7 @@ async function main() {
   console.log('\nto-textura (frame with children):');
   const frame = await $.exec(`
     (to-textura
-      [frame (mk-props 300 0 "column" 8 16 "" "" 0 0)
+      [frame (mk-props9 300 0 "column" 8 16 "" "" 0 0)
         [[spacer 100 20]
          [text-node [handled-text "Test" "14px sans-serif" ellipsis]]
          [spacer 100 20]]])`);
@@ -81,7 +81,7 @@ async function main() {
   console.log('\nsolve-layout:');
   const layout = await $.exec(`
     (solve-layout
-      [frame (mk-props 200 100 "column" 0 0 "" "" 0 0)
+      [frame (mk-props9 200 100 "column" 0 0 "" "" 0 0)
         [[spacer 50 30]]]
       200 100)`);
   check('layout result is object', typeof layout === 'object' && layout !== null, typeof layout);
@@ -94,7 +94,7 @@ async function main() {
   console.log('\nsolve-layout (multiple children):');
   const multi = await $.exec(`
     (solve-layout
-      [frame (mk-props 300 200 "column" 8 0 "" "" 0 0)
+      [frame (mk-props9 300 200 "column" 8 0 "" "" 0 0)
         [[spacer 100 40]
          [spacer 100 40]
          [spacer 100 40]]]

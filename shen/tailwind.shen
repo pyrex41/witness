@@ -11,7 +11,9 @@
   "0" -> 0    "1" -> 4    "2" -> 8    "3" -> 12
   "4" -> 16   "5" -> 20   "6" -> 24   "8" -> 32
   "10" -> 40  "12" -> 48  "16" -> 64  "20" -> 80
-  "24" -> 96  "32" -> 128
+  "24" -> 96  "32" -> 128 "40" -> 160 "48" -> 192
+  "56" -> 224 "64" -> 256 "72" -> 288 "80" -> 320
+  "96" -> 384
   N -> (simple-error (cn "Unknown Tailwind size: " N)))
 
 \\ --- String helpers ---
@@ -52,6 +54,8 @@
   "flex" -> [direction "row"]
   "flex-col" -> [direction "column"]
   "flex-row" -> [direction "row"]
+  "flex-wrap" -> [flex-wrap "wrap"]
+  "flex-nowrap" -> [flex-wrap "nowrap"]
   "items-center" -> [align "center"]
   "items-start" -> [align "flex-start"]
   "items-end" -> [align "flex-end"]
@@ -71,14 +75,22 @@
   "rounded-lg" -> [border-radius 8]
   Class -> (parse-tw-prefixed Class))
 
-\\ Parse classes with prefix-size pattern (w-4, h-2, p-8, etc.)
+\\ Parse classes with prefix-size pattern (w-4, h-2, p-8, m-4, etc.)
 
 (define parse-tw-prefixed
   Class ->
+    (if (starts-with? "min-w-" Class)
+        [min-width (tw-scale (strip-prefix "min-w-" Class))]
+    (if (starts-with? "max-w-" Class)
+        [max-width (tw-scale (strip-prefix "max-w-" Class))]
+    (if (starts-with? "min-h-" Class)
+        [min-height (tw-scale (strip-prefix "min-h-" Class))]
     (if (starts-with? "w-" Class)
         [width (tw-scale (strip-prefix "w-" Class))]
     (if (starts-with? "h-" Class)
         [height (tw-scale (strip-prefix "h-" Class))]
+    (if (starts-with? "m-" Class)
+        [margin (tw-scale (strip-prefix "m-" Class))]
     (if (starts-with? "p-" Class)
         [padding (tw-scale (strip-prefix "p-" Class))]
     (if (starts-with? "px-" Class)
@@ -87,7 +99,7 @@
         [padding-y (tw-scale (strip-prefix "py-" Class))]
     (if (starts-with? "gap-" Class)
         [gap (tw-scale (strip-prefix "gap-" Class))]
-        [unknown Class])))))))
+        [unknown Class])))))))))))
 
 \\ --- Parse a list of class strings to a list of property pairs ---
 
@@ -96,24 +108,28 @@
   [C | Cs] -> [(parse-tw-class C) | (parse-tw-classes Cs)])
 
 \\ --- Merge parsed properties into frame-props (mk-props) ---
-\\ Defaults: width=0 height=0 direction="column" gap=0 padding=0
-\\           justify="" align="" grow=0 shrink=0
+\\ 14 fields: W H D G P J A Gr Sh M FW MnW MxW MnH
 
 (define tw-to-props
-  Props -> (tw-merge Props 0 0 "column" 0 0 "" "" 0 0))
+  Props -> (tw-merge Props 0 0 "column" 0 0 "" "" 0 0 0 "" 0 0 0))
 
 (define tw-merge
-  [] W H D G P J A Gr Sh -> (mk-props W H D G P J A Gr Sh)
-  [[width V] | Rest] _ H D G P J A Gr Sh -> (tw-merge Rest V H D G P J A Gr Sh)
-  [[height V] | Rest] W _ D G P J A Gr Sh -> (tw-merge Rest W V D G P J A Gr Sh)
-  [[direction V] | Rest] W H _ G P J A Gr Sh -> (tw-merge Rest W H V G P J A Gr Sh)
-  [[gap V] | Rest] W H D _ P J A Gr Sh -> (tw-merge Rest W H D V P J A Gr Sh)
-  [[padding V] | Rest] W H D G _ J A Gr Sh -> (tw-merge Rest W H D G V J A Gr Sh)
-  [[justify V] | Rest] W H D G P _ A Gr Sh -> (tw-merge Rest W H D G P V A Gr Sh)
-  [[align V] | Rest] W H D G P J _ Gr Sh -> (tw-merge Rest W H D G P J V Gr Sh)
-  [[flex-grow V] | Rest] W H D G P J A _ Sh -> (tw-merge Rest W H D G P J A V Sh)
-  [[flex-shrink V] | Rest] W H D G P J A Gr _ -> (tw-merge Rest W H D G P J A Gr V)
-  [[_ _] | Rest] W H D G P J A Gr Sh -> (tw-merge Rest W H D G P J A Gr Sh))
+  [] W H D G P J A Gr Sh M FW MnW MxW MnH -> (mk-props W H D G P J A Gr Sh M FW MnW MxW MnH)
+  [[width V] | Rest] _ H D G P J A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest V H D G P J A Gr Sh M FW MnW MxW MnH)
+  [[height V] | Rest] W _ D G P J A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W V D G P J A Gr Sh M FW MnW MxW MnH)
+  [[direction V] | Rest] W H _ G P J A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W H V G P J A Gr Sh M FW MnW MxW MnH)
+  [[gap V] | Rest] W H D _ P J A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W H D V P J A Gr Sh M FW MnW MxW MnH)
+  [[padding V] | Rest] W H D G _ J A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W H D G V J A Gr Sh M FW MnW MxW MnH)
+  [[justify V] | Rest] W H D G P _ A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W H D G P V A Gr Sh M FW MnW MxW MnH)
+  [[align V] | Rest] W H D G P J _ Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W H D G P J V Gr Sh M FW MnW MxW MnH)
+  [[flex-grow V] | Rest] W H D G P J A _ Sh M FW MnW MxW MnH -> (tw-merge Rest W H D G P J A V Sh M FW MnW MxW MnH)
+  [[flex-shrink V] | Rest] W H D G P J A Gr _ M FW MnW MxW MnH -> (tw-merge Rest W H D G P J A Gr V M FW MnW MxW MnH)
+  [[margin V] | Rest] W H D G P J A Gr Sh _ FW MnW MxW MnH -> (tw-merge Rest W H D G P J A Gr Sh V FW MnW MxW MnH)
+  [[flex-wrap V] | Rest] W H D G P J A Gr Sh M _ MnW MxW MnH -> (tw-merge Rest W H D G P J A Gr Sh M V MnW MxW MnH)
+  [[min-width V] | Rest] W H D G P J A Gr Sh M FW _ MxW MnH -> (tw-merge Rest W H D G P J A Gr Sh M FW V MxW MnH)
+  [[max-width V] | Rest] W H D G P J A Gr Sh M FW MnW _ MnH -> (tw-merge Rest W H D G P J A Gr Sh M FW MnW V MnH)
+  [[min-height V] | Rest] W H D G P J A Gr Sh M FW MnW MxW _ -> (tw-merge Rest W H D G P J A Gr Sh M FW MnW MxW V)
+  [[_ _] | Rest] W H D G P J A Gr Sh M FW MnW MxW MnH -> (tw-merge Rest W H D G P J A Gr Sh M FW MnW MxW MnH))
 
 \\ --- The tw function: shorthand for creating frame nodes ---
 \\ (tw ["flex" "gap-4" "p-8"] Children) => [frame Props Children]
