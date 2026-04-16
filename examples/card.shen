@@ -24,7 +24,7 @@
 
 (define card-description
   Desc ->
-    [text-node [handled-text Desc (mk-font "sans-serif" 14) ellipsis]])
+    [text-node [handled-text Desc (mk-font "sans-serif" 14) 268 ellipsis]])
 
 (define card-button
   Label ->

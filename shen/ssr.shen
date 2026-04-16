@@ -35,6 +35,19 @@
 (define ssr-has-text?
   Layout -> (string? (js.get Layout "text")))
 
+\\ --- Overflow CSS fragment for text nodes ---
+\\ Read the `overflow` tag propagated from the input tree by boot.js.
+\\ For ellipsis/clip we need a single-line container that truncates at MaxW.
+\\ Visible (or absent) means no clipping — empty CSS.
+
+(define ssr-overflow-css
+  Layout -> (ssr-overflow-from (js.get Layout "overflow")))
+
+(define ssr-overflow-from
+  "ellipsis" -> "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+  "clip"     -> "overflow:hidden;white-space:nowrap;"
+  _          -> "")
+
 \\ --- Simple HTML escaping ---
 
 (define html-escape
@@ -75,10 +88,11 @@
 
 (define render-node-html
   Layout ->
-    (let Style (cn "position:absolute;left:" (cn (ssr-px (js.get Layout "x"))
-                (cn ";top:" (cn (ssr-px (js.get Layout "y"))
-                (cn ";width:" (cn (ssr-px (js.get Layout "width"))
-                (cn ";height:" (cn (ssr-px (js.get Layout "height")) ";"))))))))
+    (let BaseStyle (cn "position:absolute;left:" (cn (ssr-px (js.get Layout "x"))
+                    (cn ";top:" (cn (ssr-px (js.get Layout "y"))
+                    (cn ";width:" (cn (ssr-px (js.get Layout "width"))
+                    (cn ";height:" (cn (ssr-px (js.get Layout "height")) ";"))))))))
+         Style (cn BaseStyle (if (ssr-has-text? Layout) (ssr-overflow-css Layout) ""))
          Attrs (cn "style=" (cn (n->string 34) (cn Style (n->string 34))))
          Content (if (ssr-has-text? Layout)
                      (render-text-html Layout)
@@ -114,6 +128,8 @@
 (declare open-tag-attrs [string --> [string --> string]])
 (declare ssr-px [number --> string])
 (declare ssr-has-text? [computed-layout --> boolean])
+(declare ssr-overflow-css [computed-layout --> string])
+(declare ssr-overflow-from [string --> string])
 (declare render-text-html [computed-layout --> string])
 (declare html-escape [string --> string])
 (declare escape-char [string --> string])

@@ -1,10 +1,13 @@
-\\ counter.shen — Complete counter app from Witness spec
+\\ counter.shen — TEA runtime example (not runnable in Node CLI; browser harness TBD)
 \\
 \\ Demonstrates:
 \\   - TEA (The Elm Architecture) with typed messages and model
 \\   - Layout proof: static button labels checked at compile time via proven-text
 \\   - handled-text for dynamic counter display (overflow = visible)
 \\   - Tailwind-style layout classes
+\\
+\\ Status: load-time proofs verify (witness dev examples/counter.shen).
+\\ The `run-app` TEA runtime needs a browser harness (DOM globals); not yet wired.
 \\
 \\ Model = (@p count N) where N is a number
 \\ Messages = increment | decrement
@@ -37,7 +40,7 @@
 (define counter-view
   (@p count N) ->
     (tw [flex flex-col items-center gap-4 p-8]
-      [(text-node (handled-text (str N) (mk-font "sans-serif" 32) visible))
+      [(text-node (handled-text (str N) (mk-font "sans-serif" 32) 200 visible))
        (tw [flex gap-2]
          [(counter-button "-" decrement)
           (counter-button "+" increment)])]))

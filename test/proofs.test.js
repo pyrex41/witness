@@ -71,14 +71,14 @@ async function main() {
   const r3 = await loadShen($, `
 (define handled-btn
   {string --> safe-text}
-  _ -> [handled-text "Any text" "14px sans-serif" ellipsis])`);
+  _ -> [handled-text "Any text" "14px sans-serif" 100 ellipsis])`);
   check('handled-text compiles without proof', r3.ok, r3.error);
 
   // handled-text with clip
   const r4 = await loadShen($, `
 (define clip-btn
   {string --> safe-text}
-  _ -> [handled-text "Any text" "14px sans-serif" clip])`);
+  _ -> [handled-text "Any text" "14px sans-serif" 100 clip])`);
   check('handled-text with clip compiles', r4.ok, r4.error);
 
   // --- Compile-time assertion tests ---

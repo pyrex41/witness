@@ -80,10 +80,13 @@
   S : (bounded N);
 
   \\ Handled text: developer explicitly chose an overflow strategy
-  \\ No proof required — this is the escape hatch
-  Text : string; Font : string; Overflow : overflow;
+  \\ No proof required — this is the escape hatch.
+  \\ MaxW declares the container width the text is rendered into:
+  \\   - ellipsis / clip : text is truncated at MaxW (CSS text-overflow)
+  \\   - visible         : MaxW is a documentation hint; text may render wider
+  Text : string; Font : string; MaxW : number; Overflow : overflow;
   _______________________________________________
-  [handled-text Text Font Overflow] : safe-text;)
+  [handled-text Text Font MaxW Overflow] : safe-text;)
 
 \\ --- Overflow strategies ---
 

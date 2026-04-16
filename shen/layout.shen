@@ -55,7 +55,33 @@
   ____________________________
   [spacer W H] : node;)
 
+\\ --- Overflow strategy → CSS value string ---
+\\ The renderer emits `overflow:<value>;text-overflow:<...>;white-space:<...>`
+\\ based on this tag. Kept as CSS-compatible strings so renderers don't need
+\\ to reinterpret the tag.
+
+(define overflow->css
+  ellipsis -> "ellipsis"
+  clip     -> "clip"
+  visible  -> "visible"
+  _        -> "visible")
+
+\\ --- Clip width for handled-text ---
+\\ For ellipsis/clip the renderer must know the displayed width so the CSS
+\\ truncation actually cuts at the container bound. For visible we pass 0,
+\\ meaning "don't override the Yoga-computed width."
+
+(define clip-width
+  visible _ -> 0
+  _       MaxW -> MaxW)
+
 \\ --- Convert Witness node tree to Textura input tree ---
+\\
+\\ Text measurement note: we always pass 999999 as the Yoga layout width for
+\\ text nodes. This keeps Pretext from wrapping the text into multiple lines
+\\ (which would shift siblings and break Figma structural verification).
+\\ Visual clipping for ellipsis/clip is done by the renderer via CSS, using
+\\ the clip-width propagated alongside the `overflow` tag.
 
 (define to-textura
   [frame Props Children] ->
@@ -71,10 +97,12 @@
       (map (/. C (to-textura C)) Children))
 
   [text-node [proven-text Text Font MaxW]] ->
-    (textura-text Text Font 20 MaxW)
+    (textura-text Text Font 20 MaxW 0 "visible")
 
-  [text-node [handled-text Text Font _]] ->
-    (textura-text Text Font 20 999999)
+  [text-node [handled-text Text Font MaxW Overflow]] ->
+    (textura-text Text Font 20 999999
+      (clip-width Overflow MaxW)
+      (overflow->css Overflow))
 
   [spacer W H] ->
     (textura-box W H))
@@ -104,5 +132,7 @@
 (declare get-min-width [frame-props --> number])
 (declare get-max-width [frame-props --> number])
 (declare get-min-height [frame-props --> number])
+(declare overflow->css [overflow --> string])
+(declare clip-width [overflow --> [number --> number]])
 (declare to-textura [node --> textura-tree])
 (declare solve-layout [node --> [number --> [number --> computed-layout]]])

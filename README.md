@@ -4,6 +4,47 @@
 
 ---
 
+## Quick start
+
+```bash
+git clone https://github.com/pyrex41/witness
+cd witness && npm install
+
+# Tier 1: static text proofs (fails on overflow)
+node cli/check.js dev examples/card.shen
+node cli/check.js dev examples/card-overflow.shen
+
+# Render layout to static HTML
+node cli/check.js render examples/card.shen --output card.html
+
+# Tier 3: diff computed layout against a Figma export
+node cli/check.js check --figma examples/card-design.json examples/card.shen
+
+# Agent: parse structured overflow errors and auto-widen containers
+node cli/agent.js examples/card-overflow.shen
+```
+
+See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [`WITNESS_LEAN.md`](WITNESS_LEAN.md) for the spec and roadmap.
+
+---
+
+## What's implemented today
+
+| Capability | Status |
+|---|---|
+| `assert-fits` load-time proof (Tier 1) | works |
+| `proven-text` sequent-calculus proof under `tc+` | works |
+| `handled-text` escape hatch — `ellipsis` / `clip` / `visible` render to real CSS | works |
+| Figma structural diff, library + CLI | works |
+| Runtime `fits?` branching (Tier 4) | works |
+| SSR renderer → static HTML | works |
+| Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
+| `witness agent` widen-fix loop | works |
+| Bounded-string worst-case proofs (Tier 2) — `(bounded N)` type | declared, not wired |
+| DOM runtime (`run-app`, TEA) | library exists; browser harness TBD |
+
+---
+
 ## The core idea
 
 Layout bugs are discovered at the worst possible time: in the browser, after deployment, by a user whose screen is slightly narrower than yours. A button label wraps. A price overflows its box. A translated string destroys a card.
@@ -85,24 +126,24 @@ If the text were "Submit your very long application for review", it would fail t
 The compiler forces you to pick one — silence is not an option:
 
 ```shen
-;; Option 1: Prove worst-case fits (bounded string from API)
+;; Option 1: Prove worst-case fits (bounded string from API) — planned, (bounded N) type exists
 S : (bounded 20);  ;; API guarantees ≤20 chars
 ...
 
 ;; Option 2: Explicitly handle overflow
 (define dynamic-label
   {string --> safe-text}
-  Text -> [handled-text Text (mk-font "Inter" 14) ellipsis])
+  Text -> [handled-text Text (mk-font "Inter" 14) 200 ellipsis])
 
 ;; Option 3: Runtime branch (just an if-statement, no proof machinery)
 (define user-content
   {string --> safe-text}
   Text -> (if (fits? Text (mk-font "Inter" 14) 200)
               [proven-text Text (mk-font "Inter" 14) 200]
-              [handled-text Text (mk-font "Inter" 14) ellipsis]))
+              [handled-text Text (mk-font "Inter" 14) 200 ellipsis]))
 ```
 
-You cannot put unproven text into a fixed container. The compiler won't let you forget.
+You cannot put unproven text into a fixed container. The compiler won't let you forget. `handled-text` with `ellipsis` emits real `text-overflow:ellipsis;white-space:nowrap;overflow:hidden` CSS at render time; `clip` emits `overflow:hidden`; `visible` emits nothing.
 
 ### Figma specs as executable contracts
 
@@ -136,7 +177,7 @@ The Tailwind-style `tw` macro makes layout declarations readable:
 (define view {model --> node}
   (count N) ->
     (tw [flex flex-col items-center gap-4 p-8]
-      [(text-node (handled-text (str N) (mk-font "Inter" 32) visible))
+      [(text-node (handled-text (str N) (mk-font "Inter" 32) 200 visible))
        (tw [flex gap-2]
          [(button "-" decrement)
           (button "+" increment)])]))
@@ -149,12 +190,15 @@ The `tw` macro is parsed by a `defcc` grammar that maps Tailwind class tokens to
 ## CLI
 
 ```sh
-witness dev src/          # tier 1 only — instant feedback during development
-witness build src/        # tier 1 + 2 — for CI and pre-commit
-witness check --full src/ # tier 1 + 2 + 3 — exhaustive pre-release check
-witness check --figma     # structural diff against Figma export
-witness check --perf      # performance budget proofs
+witness dev <files...>         # tier 1 — assert-fits at load time, no type sigs required
+witness build <files...>       # tier 1 with type checking (tc+)
+witness check --full <files...># tier 1 with type checking (tc+)
+witness check --figma <spec> <file>   # tier 3 — structural diff against Figma export
+witness render <file.shen>     # render computed layout to static HTML
+witness agent <file.shen>      # parse structured errors, auto-widen containers
 ```
+
+Today these map to `node cli/check.js <command>` and `node cli/agent.js`.
 
 ---
 
@@ -162,27 +206,28 @@ witness check --perf      # performance budget proofs
 
 ```
 witness/
-├── boot.js                 # ShenScript + Textura + DOM interop (~100 lines)
+├── boot.js                 # ShenScript + Textura + DOM interop
 ├── shen/
-│   ├── witness.shen        # loads everything (~10 lines)
-│   ├── proofs.shen         # layout proof datatypes (~80 lines)
-│   ├── layout.shen         # node types + Textura bridge (~100 lines)
-│   ├── tea.shen            # TEA runtime: Model/Update/View (~120 lines)
-│   ├── dom.shen            # DOM renderer (~80 lines)
-│   ├── tailwind.shen       # defcc grammar for tw macro (~100 lines)
-│   ├── errors.shen         # structured JSON error construction (~60 lines)
-│   └── figma.shen          # structural diff against Figma exports (~120 lines)
+│   ├── witness.shen        # loads everything
+│   ├── proofs.shen         # layout proof datatypes
+│   ├── layout.shen         # node types + Textura bridge, overflow → CSS
+│   ├── tea.shen            # TEA runtime: Model/Update/View
+│   ├── dom.shen            # DOM renderer (browser)
+│   ├── ssr.shen            # SSR renderer (Node → static HTML)
+│   ├── tailwind.shen       # defcc grammar for tw macro
+│   ├── errors.shen         # structured JSON error construction
+│   └── figma.shen          # structural diff against Figma exports
 ├── cli/
-│   ├── check.js            # type-check only
-│   ├── verify.js           # Figma structural diff
+│   ├── check.js            # dev / build / check / render / measure
+│   ├── verify.js           # standalone Figma structural diff wrapper
 │   └── agent.js            # agent self-correction loop
 └── examples/
-    ├── counter.shen
-    ├── todo.shen
-    └── chat.shen
+    ├── card.shen
+    ├── card-overflow.shen
+    └── counter.shen
 ```
 
-~670 lines of Shen. ~100 lines of JS glue.
+~700 lines of Shen. ~150 lines of JS glue.
 
 ---
 
@@ -191,26 +236,7 @@ witness/
 - A JS code emitter (ShenScript is the runtime)
 - Canvas / WebGL / PixiJS renderers (DOM only; Textura's `{x,y,w,h}` output makes this trivial to add later)
 - A module system (use Shen's `load`)
-- Server-side rendering
 - Pixel-perfect screenshot diffing (structural position/size diff only)
-
----
-
-## Status
-
-Active development.
-
-| Phase | Status | Lines |
-|-------|--------|-------|
-| Textura interop | In progress | ~30 |
-| Layout proof types | In progress | ~100 |
-| Node types + Textura bridge | Planned | ~100 |
-| TEA runtime | Planned | ~120 |
-| DOM renderer | Planned | ~80 |
-| Tailwind bridge | Planned | ~100 |
-| Error messages | Planned | ~60 |
-| Figma verification | Planned | ~120 |
-| Agent loop | Planned | ~10 (JS) |
 
 ---
 
@@ -222,4 +248,4 @@ Shen gives us types, Prolog, and parser combinators — for free.
 Textura gives us Pretext + Yoga as a single `computeLayout` call — for free.  
 ShenScript gives us JS interop — for free.
 
-We're not building a language or a layout engine. We're writing 700 lines of Shen that connect three proven tools in a way nobody has before.
+We're not building a language or a layout engine. We're writing ~700 lines of Shen that connect three proven tools in a way nobody has before.

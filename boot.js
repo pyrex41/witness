@@ -102,7 +102,30 @@ async function boot(options = {}) {
   });
 
   // --- Layout engine (Textura: Yoga + Pretext) ---
-  await $.define('textura.layout', (tree) => computeLayout(tree));
+  // Textura's ComputedLayout output only includes x/y/width/height/text/children/lineCount;
+  // custom fields on the input are dropped. We zip two fields from the input text nodes
+  // onto the output so the renderer can do visual clipping:
+  //   - `overflow`  : the CSS overflow strategy ('ellipsis' | 'clip' | 'visible')
+  //   - `clipWidth` : the author-declared MaxW. When > 0 we override output.width so
+  //                   the rendered CSS width matches what the author asked for, even
+  //                   though Yoga measured the text at intrinsic (unwrapped) width.
+  function propagateOverflow(input, output) {
+    if (input && output && output.text !== undefined) {
+      if (input.overflow !== undefined) output.overflow = input.overflow;
+      if (typeof input.clipWidth === 'number' && input.clipWidth > 0) {
+        output.width = input.clipWidth;
+      }
+    }
+    if (input && Array.isArray(input.children) && output && Array.isArray(output.children)) {
+      const n = Math.min(input.children.length, output.children.length);
+      for (let i = 0; i < n; i++) propagateOverflow(input.children[i], output.children[i]);
+    }
+  }
+  await $.define('textura.layout', (tree) => {
+    const out = computeLayout(tree);
+    propagateOverflow(tree, out);
+    return out;
+  });
 
   // --- Textura tree builders (called from Shen, return JS objects) ---
   await $.define('textura-obj', (w, h, dir, gap, pad, justify, align, grow, shrink, margin, flexWrap, minW, maxW, minH, children) => {
@@ -125,11 +148,18 @@ async function boot(options = {}) {
     return node;
   });
 
-  await $.define('textura-text', (text, font, lineHeight, maxW) => ({
+  // textura-text builds the Yoga input.
+  //   - `width` is what Yoga uses to measure/wrap (pass 999999 for no wrap).
+  //   - `clipWidth` is the displayed width at render time (e.g. for ellipsis).
+  //     0 means no clipping; the renderer uses Yoga's computed width.
+  //   - `overflow` is the CSS overflow strategy tag.
+  await $.define('textura-text', (text, font, lineHeight, width, clipWidth, overflow) => ({
     text: String(text),
     font: String(font),
     lineHeight: lineHeight,
-    width: maxW
+    width: width,
+    clipWidth: clipWidth,
+    overflow: String(overflow)
   }));
 
   await $.define('textura-box', (w, h) => ({ width: w, height: h }));

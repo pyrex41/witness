@@ -41,16 +41,27 @@
 (define render-to-dom
   Layout Parent ->
     (let El (dom.create-element "div")
-         _ (dom.set-style El
-              (js.obj ["position" "absolute"
-                       "left"     (px (js.get Layout "x"))
-                       "top"      (px (js.get Layout "y"))
-                       "width"    (px (js.get Layout "width"))
-                       "height"   (px (js.get Layout "height"))]))
+         BaseStyle ["position" "absolute"
+                    "left"     (px (js.get Layout "x"))
+                    "top"      (px (js.get Layout "y"))
+                    "width"    (px (js.get Layout "width"))
+                    "height"   (px (js.get Layout "height"))]
+         Style (if (has-text? Layout)
+                   (append BaseStyle (overflow-style-pairs (js.get Layout "overflow")))
+                   BaseStyle)
+         _ (dom.set-style El (js.obj Style))
          _ (if (has-text? Layout)
                (render-text El Layout)
                (render-children El Layout))
       (dom.append Parent El)))
+
+\\ --- Overflow strategy → list of style key/value pairs ---
+\\ Returns a flat key-value list that can be appended to the base style list.
+
+(define overflow-style-pairs
+  "ellipsis" -> ["overflow" "hidden" "text-overflow" "ellipsis" "white-space" "nowrap"]
+  "clip"     -> ["overflow" "hidden" "white-space" "nowrap"]
+  _          -> [])
 
 \\ --- Factory: returns a render function bound to a container ---
 
@@ -69,4 +80,5 @@
 (declare each [[A --> B] --> [list A] --> boolean])
 (declare render-children [dom-element --> [computed-layout --> boolean]])
 (declare render-to-dom [computed-layout --> [dom-element --> dom-element]])
+(declare overflow-style-pairs [string --> [list string]])
 (declare dom-renderer [string --> [computed-layout --> dom-element]])

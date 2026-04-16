@@ -63,8 +63,8 @@ Change the title and the compiler catches it instantly. Not at runtime. Not in a
 ### Step 3: Figma verification
 
 ```
-$ witness verify examples/card-design.json examples/card.shen
-Verifying examples/card.shen against Figma spec (tolerance: 2px)...
+$ witness check --figma examples/card-design.json examples/card.shen
+Verifying examples/card.shen against Figma spec examples/card-design.json (tolerance: 2px, expr: (render-view))...
   ✓ All nodes within tolerance
 ```
 
@@ -124,7 +124,7 @@ node cli/check.js dev examples/card-overflow.shen
 node cli/check.js render examples/card.shen --expr "(render-view)" --output card.html
 
 # Verify against Figma
-node cli/verify.js examples/card-design.json examples/card.shen
+node cli/check.js check --figma examples/card-design.json examples/card.shen
 
 # Auto-fix overflow
 cp examples/card-overflow.shen /tmp/fix-me.shen

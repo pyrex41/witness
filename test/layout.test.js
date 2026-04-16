@@ -54,11 +54,18 @@ async function main() {
 
   // --- to-textura: text-node with handled-text ---
   console.log('\nto-textura (text-node):');
-  const textNode = await $.exec('(to-textura [text-node [handled-text "Hello" "14px sans-serif" ellipsis]])');
+  const textNode = await $.exec('(to-textura [text-node [handled-text "Hello" "14px sans-serif" 180 ellipsis]])');
   check('text node has text', textNode.text === 'Hello', textNode.text);
   check('text node has font', textNode.font === '14px sans-serif', textNode.font);
   check('text node has lineHeight', textNode.lineHeight === 20, textNode.lineHeight);
-  check('text node width is 999999 (handled)', textNode.width === 999999, textNode.width);
+  check('text node Yoga width is 999999 (no wrap)', textNode.width === 999999, textNode.width);
+  check('text node clipWidth=MaxW for ellipsis', textNode.clipWidth === 180, textNode.clipWidth);
+  check('text node carries overflow=ellipsis', textNode.overflow === 'ellipsis', textNode.overflow);
+
+  const visTextNode = await $.exec('(to-textura [text-node [handled-text "Hello" "14px sans-serif" 180 visible]])');
+  check('text node Yoga width=999999 when visible', visTextNode.width === 999999, visTextNode.width);
+  check('text node clipWidth=0 when visible', visTextNode.clipWidth === 0, visTextNode.clipWidth);
+  check('text node overflow=visible', visTextNode.overflow === 'visible', visTextNode.overflow);
 
   // --- to-textura: frame with children ---
   console.log('\nto-textura (frame with children):');
@@ -66,7 +73,7 @@ async function main() {
     (to-textura
       [frame (mk-props9 300 0 "column" 8 16 "" "" 0 0)
         [[spacer 100 20]
-         [text-node [handled-text "Test" "14px sans-serif" ellipsis]]
+         [text-node [handled-text "Test" "14px sans-serif" 200 ellipsis]]
          [spacer 100 20]]])`);
   check('frame has children array', Array.isArray(frame.children), typeof frame.children);
   check('frame has 3 children', frame.children.length === 3, frame.children?.length);
