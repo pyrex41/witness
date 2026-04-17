@@ -70,6 +70,8 @@ Verifying examples/card.shen against Figma spec examples/card-design.json (toler
 
 Export your Figma design as JSON. Witness computes the layout from your code and diffs the two position trees. If your code drifts from the design by more than the tolerance, you know.
 
+> **WIP:** the parser consumes a narrow subset of Figma's schema (`name` + `absoluteBoundingBox` + `children`) and is tested only against hand-crafted fixtures. Not yet validated against a real Figma REST API export. See the [Figma status note in the README](../README.md#figma-status).
+
 ### Step 4: Agent auto-fix
 
 ```

@@ -1,8 +1,18 @@
 \\ figma.shen — Structural verification of Figma designs against code
 \\
-\\ Parses Figma JSON exports and compares node positions against
-\\ computed layout trees to detect structural drift.
-\\ Supports name-based matching (preferred) with positional fallback.
+\\ STATUS: WIP. Consumes only `name` + `absoluteBoundingBox` + `children`
+\\ from each node, recursively. All other Figma fields (type, fills,
+\\ characters, constraints, layoutMode, component instances, vector
+\\ paths) are silently ignored. Tested against hand-crafted fixtures
+\\ (test/fixtures/simple-card.json, examples/card-design.json); NOT
+\\ yet validated against a real Figma REST API export from a live
+\\ file. Real-world exports may break on: missing absoluteBoundingBox
+\\ (masks/invisible nodes), duplicate sibling names, component
+\\ instances, or deep recursion on large files.
+\\
+\\ Compares node positions against computed layout trees to detect
+\\ structural drift. Supports name-based matching (preferred) with
+\\ positional fallback.
 \\
 \\ NOTE: Loaded WITHOUT (tc +) — see witness.shen
 

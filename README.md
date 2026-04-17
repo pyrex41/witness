@@ -35,7 +35,7 @@ See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [
 | `assert-fits` load-time proof (Tier 1) | works |
 | `proven-text` sequent-calculus proof under `tc+` | works |
 | `handled-text` escape hatch — `ellipsis` / `clip` / `visible` render to real CSS | works |
-| Figma structural diff, library + CLI | works |
+| Figma structural diff, library + CLI | **WIP** — works on hand-crafted fixtures; [not yet validated](#figma-status) against real REST API exports |
 | Runtime `fits?` branching (Tier 4) | works |
 | SSR renderer → static HTML | works |
 | Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
@@ -147,7 +147,10 @@ You cannot put unproven text into a fixed container. The compiler won't let you 
 
 ### Figma specs as executable contracts
 
-Witness can parse a Figma JSON export and structurally diff it against your actual computed layout — comparing positions and sizes with a configurable tolerance. Not pixel comparison; position/size comparison. Figma designs become enforceable contracts, not reference images.
+Witness can parse a Figma-shaped JSON export and structurally diff it against your actual computed layout — comparing positions and sizes with a configurable tolerance. Not pixel comparison; position/size comparison. The idea: Figma designs become enforceable contracts, not reference images.
+
+<a id="figma-status"></a>
+> **Status: WIP.** `shen/figma.shen` consumes a narrow subset of Figma's schema — `name`, `absoluteBoundingBox.{x,y,width,height}`, and `children`, recursively. Everything else Figma emits (`type`, `fills`, `characters`, `constraints`, `layoutMode`, component instances, vector paths) is silently ignored. The library is tested against hand-crafted fixtures (`test/fixtures/simple-card.json`, `examples/card-design.json`) that match that schema. **It has not been validated against an actual REST API export from a live Figma file.** Real-world exports may break on: missing `absoluteBoundingBox` (masks/invisible nodes), duplicate sibling names, deeply nested component instances, or sheer size (the tree walk is unbounded recursion). Treat this as a design sketch that works for the demo, not a production integration.
 
 ### AI agent loop
 

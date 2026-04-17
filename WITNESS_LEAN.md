@@ -31,8 +31,8 @@ Everything above the line exists and works. We write the glue.
 | Tier 1 — `proven-text` sequent calculus under `tc+` | ✅ works | Requires static text, font, bound |
 | Tier 1 — `handled-text` escape hatch (ellipsis/clip/visible) | ✅ works | Overflow CSS emitted by SSR + DOM renderers |
 | Tier 2 — bounded-string worst-case proofs | 🚧 planned | `(bounded N)` type is declared, not wired to `assert-fits` |
-| Tier 3 — Figma structural diff (library) | ✅ works | `shen/figma.shen` + `test/figma.test.js` |
-| Tier 3 — Figma CLI (`witness check --figma`) | ✅ works | Renders `(render-view)`, diffs against spec |
+| Tier 3 — Figma structural diff (library) | 🚧 **WIP** | `shen/figma.shen` works on hand-crafted fixtures; not yet validated against real Figma REST API exports |
+| Tier 3 — Figma CLI (`witness check --figma`) | 🚧 **WIP** | End-to-end works on demo fixtures; see WIP note above |
 | Tier 4 — runtime `fits?` branching | ✅ works | Standard Shen `if` on `(fits? ...)` |
 | SSR renderer (`witness render`) | ✅ works | Emits static HTML with computed layout |
 | DOM runtime (TEA `run-app`) | 🚧 browser harness TBD | `examples/counter.shen` not runnable in Node CLI |
