@@ -87,10 +87,10 @@ Textura              — Pretext + Yoga: full DOM-free layout
   ├─ Pretext         — pure text measurement, 0.09ms/500 texts
   └─ Yoga WASM       — Facebook's flexbox engine (React Native)
 ──────────────────────────────────────────────────────────────
-Witness              — ~700 lines of Shen connecting it all
+Witness              — ~1.1k lines Shen + ~730 lines JS glue
 ```
 
-Everything above the line exists and works. Witness is the ~700-line glue layer written in Shen (~100 lines of JS interop).
+Everything above the line exists and works. Witness itself is ~1,100 lines of Shen (proofs, layout bridge, errors, figma diff, SSR + DOM renderers, tailwind macro, TEA runtime) plus ~730 lines of JS glue (ShenScript/Textura interop, CLI commands, agent loop).
 
 ### Why each piece matters
 
@@ -167,9 +167,22 @@ async function agent(files, maxIter = 10) {
 
 ---
 
-## The runtime
+## The runtime (optional)
 
-Witness uses the **Elm Architecture (TEA)** — Model, Update, View — running on Shen. The view function returns a layout tree; Textura computes exact positions; a DOM renderer walks the result and emits positioned elements. No virtual DOM diffing, no reflow.
+**The compile-time proofs don't require a runtime.** `assert-fits`, `proven-text`, `handled-text`, the Figma diff, and the structured error/agent loop all work on plain node trees — you can ship Witness-checked layouts through any renderer (SSR to HTML, your own React components, a canvas painter). The proofs are where the value lives; what you do with the verified tree afterwards is your choice.
+
+If you want reactive apps with the same proof guarantees frame-to-frame, Witness ships an optional **Elm Architecture (TEA)** runtime (`shen/tea.shen`, ~130 lines). Model → Update → View, with commands as data. The view function returns a layout tree; `solve-layout` runs; a renderer callback paints. Every re-render goes through the same `proven-text`/`handled-text` types, so overflow proofs hold across state changes, not just at first paint.
+
+```
+[ your node tree ]  ──►  compile-time proofs  ──►  [ verified tree ]
+                                                     │
+                             ┌───────────────────────┼───────────────────────┐
+                             ▼                       ▼                       ▼
+                       SSR → HTML          Figma structural diff        TEA runtime
+                    (witness render)      (witness check --figma)    (shen/tea.shen)
+```
+
+You can use any subset. Counter-style reactive apps pick TEA; static pages pick SSR; design-vs-code diffing picks Figma. The proofs are identical across all three.
 
 The Tailwind-style `tw` macro makes layout declarations readable:
 
@@ -227,7 +240,7 @@ witness/
     └── counter.shen
 ```
 
-~700 lines of Shen. ~150 lines of JS glue.
+~1,100 lines of Shen. ~730 lines of JS glue.
 
 ---
 
@@ -248,4 +261,4 @@ Shen gives us types, Prolog, and parser combinators — for free.
 Textura gives us Pretext + Yoga as a single `computeLayout` call — for free.  
 ShenScript gives us JS interop — for free.
 
-We're not building a language or a layout engine. We're writing ~700 lines of Shen that connect three proven tools in a way nobody has before.
+We're not building a language or a layout engine. We're writing ~1,100 lines of Shen (plus ~730 lines of JS glue) that connect three proven tools in a way nobody has before.

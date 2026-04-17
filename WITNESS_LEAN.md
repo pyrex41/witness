@@ -18,7 +18,7 @@ Textura (exists)            — Pretext + Yoga: full DOM-free layout
   └─ Yoga WASM (inside)     — Facebook's flexbox engine (React Native)
 node-canvas (exists)        — rasterization without a browser
 ─────────────────────────────────────────────────────────────
-Witness (we build this)     — ~700 lines of Shen connecting it all
+Witness                     — ~1.1k lines Shen + ~730 lines JS glue
 ```
 
 Everything above the line exists and works. We write the glue.
@@ -68,7 +68,7 @@ into a fixed container.
 
 ## What we build (in order)
 
-### Phase 1: Textura interop (1 week)
+### Phase 1: Textura interop
 
 Register Textura as Shen native functions in boot.js.
 Textura already combines Pretext (text) and Yoga (flexbox) —
@@ -121,7 +121,7 @@ async function boot() {
 }
 ```
 
-### Phase 2: Layout proof types (1 week)
+### Phase 2: Layout proof types
 
 The `datatype` declarations that make overflow a type error.
 ~100 lines of sequent calculus rules, organized into tiers.
@@ -152,11 +152,11 @@ not example-based.
 | 4: Runtime | Production (opt-in) | per-check | User-generated content, dynamic fonts |
 
 ```
-$ witness dev src/          # tier 1 only (instant)
-$ witness build src/        # tier 1 + 2 (fast)
-$ witness check --full src/ # tier 1 + 2 + 3 (thorough)
-$ witness check --figma     # tier 3 only (Figma diff)
-$ witness check --perf      # performance budget proofs
+$ witness dev <files...>              # tier 1 — assert-fits at load time
+$ witness build <files...>            # tier 1 with type checking (tc+)
+$ witness check --figma <spec> <file> # tier 3 — Figma structural diff
+$ witness render <file.shen>          # render verified tree to static HTML
+$ witness agent <file.shen>           # auto-widen containers on overflow
 ```
 
 The proof mechanism has two complementary layers:
@@ -252,7 +252,7 @@ User code pattern — three options for every text node:
     where (fits? Text (mk-font "Inter" 14) 200))
 ```
 
-### Phase 3: Declarative layout → Textura tree (1 week)
+### Phase 3: Declarative layout → Textura tree
 
 Map Witness layout nodes to Textura's declarative tree format.
 Textura already takes exactly this shape and returns exact positions.
@@ -305,7 +305,7 @@ Textura already takes exactly this shape and returns exact positions.
       (textura.layout Tree)))
 ```
 
-### Phase 4: TEA runtime (2 weeks)
+### Phase 4: TEA runtime
 
 Elm architecture in Shen. Model/Update/View. Commands as data.
 
@@ -371,7 +371,7 @@ Commands and subscriptions as data:
   ___ (sub-on-resize OnResize) : (sub Msg);)
 ```
 
-### Phase 5: DOM renderer (1 week)
+### Phase 5: DOM renderer
 
 Walk Textura's computed layout, emit positioned DOM nodes.
 
@@ -406,7 +406,7 @@ Walk Textura's computed layout, emit positioned DOM nodes.
       (dom.append Parent El)))
 ```
 
-### Phase 6: Tailwind bridge (1 week)
+### Phase 6: Tailwind bridge
 
 `defcc` grammar that parses Tailwind classes into Textura props.
 
@@ -447,7 +447,7 @@ Walk Textura's computed layout, emit positioned DOM nodes.
     [frame (parse-tw-classes Classes) Children])
 ```
 
-### Phase 7: Error messages (1 week)
+### Phase 7: Error messages
 
 Structured JSON. Proof traces. Ranked fixes.
 
@@ -468,7 +468,7 @@ Structured JSON. Proof traces. Ranked fixes.
          { fix "Use smaller font" effort "small" confidence 0.9 }] })
 ```
 
-### Phase 8: Figma structural verification (2 weeks)
+### Phase 8: Figma structural verification
 
 Parse Figma JSON. Run Textura on code. Diff the two layout trees.
 Not pixel comparison — position/size comparison with tolerance.
@@ -491,7 +491,7 @@ Not pixel comparison — position/size comparison with tolerance.
         (fail Diffs))))
 ```
 
-### Phase 9: Agent loop (3 days)
+### Phase 9: Agent loop
 
 ```javascript
 // cli/agent.js
@@ -528,46 +528,68 @@ Textura's output is already renderer-agnostic — just `{x, y, w, h}` trees.
 ```
 witness/
 ├── package.json            # shen-script, textura
-├── boot.js                 # ShenScript + Textura + DOM interop (~100 lines)
+├── boot.js                 # ShenScript + Textura + DOM interop (212 lines)
 ├── shen/
-│   ├── witness.shen        # loads everything (~10 lines)
-│   ├── proofs.shen         # layout proof datatypes (~80 lines)
-│   ├── layout.shen         # node types + Textura bridge (~100 lines)
-│   ├── tea.shen            # TEA runtime (~120 lines)
-│   ├── dom.shen            # DOM renderer (~80 lines)
-│   ├── tailwind.shen       # defcc grammar (~100 lines)
-│   ├── errors.shen         # error construction (~60 lines)
-│   └── figma.shen          # structural diff (~120 lines)
+│   ├── witness.shen        # loads everything (17 lines)
+│   ├── proofs.shen         # layout proof datatypes (96 lines)
+│   ├── layout.shen         # node types + Textura bridge + overflow→CSS (138 lines)
+│   ├── errors.shen         # structured JSON errors + fix suggestions (95 lines)
+│   ├── figma.shen          # structural diff against Figma exports (240 lines)
+│   ├── ssr.shen            # SSR renderer → static HTML (140 lines)
+│   ├── dom.shen            # DOM renderer (browser) (84 lines)
+│   ├── tailwind.shen       # defcc grammar for tw macro (146 lines)
+│   └── tea.shen            # optional Elm-Architecture runtime (127 lines)
 ├── cli/
-│   ├── check.js            # type-check only
-│   ├── verify.js           # Figma structural diff
-│   └── agent.js            # agent loop
+│   ├── check.js            # dev / build / check / render / measure (190 lines)
+│   ├── verify.js           # standalone Figma diff wrapper (44 lines)
+│   ├── agent.js            # agent self-correction loop (128 lines)
+│   └── measure.js          # pre-compute measurements for SBCL (160 lines)
 └── examples/
-    ├── counter.shen
-    ├── todo.shen
-    └── chat.shen
+    ├── card.shen
+    ├── card-overflow.shen
+    └── counter.shen
 ```
 
-~670 lines of Shen. ~100 lines of JS glue. That's the whole thing.
+**~1,095 lines of Shen. ~734 lines of JS glue. ~1,830 lines total.** Bigger than the original 700-line sketch because SSR, the measure/agent CLIs, font validation, and Figma diffing all landed as separate modules.
+
+**Core vs. extensions.** The compile-time proofs themselves are small: `proofs.shen` + `layout.shen` + `errors.shen` + `witness.shen` ≈ 346 lines of Shen. Everything else is stuff you can use *with* the proofs but don't need:
+
+| Module | Role | Required for proofs? |
+|---|---|---|
+| `proofs.shen`, `layout.shen`, `errors.shen` | The actual backpressure — `assert-fits`, `proven-text`, `handled-text`, structured errors | yes (core) |
+| `figma.shen` | Tier 3: structural diff against Figma JSON | no (extension) |
+| `ssr.shen`, `dom.shen` | Render a verified tree to HTML / DOM | no (extension — could use any renderer) |
+| `tailwind.shen` | `tw` macro sugar for layout props | no (extension — plain `mk-props` works) |
+| `tea.shen` | Reactive Model/Update/View runtime | no (extension — only needed for interactive apps) |
+
+**TEA specifically is an optional runtime, not part of the compiler.** The proofs run at `$.load` time against any node tree; what happens to that tree afterwards is up to the caller. You can:
+- Render it once to static HTML (`witness render` → `ssr.shen`) — no TEA.
+- Diff it against a Figma spec (`witness check --figma` → `figma.shen`) — no TEA.
+- Hand the tree to your own React/canvas/whatever renderer — no TEA.
+- Use TEA if you want a reactive app with Elm-style state management, where every re-render keeps the same proof guarantees.
+
+TEA is included because interactive apps are a common target and we wanted a zero-dep story, but it's strictly additive.
 
 ---
 
-## Timeline
+## Module breakdown
 
-| Phase | Weeks | Lines of Shen |
-|-------|-------|---------------|
-| Textura interop | 1 | ~30 |
-| Layout proof types (tiered) | 1 | ~100 |
-| Node types + Textura bridge | 1 | ~100 |
-| TEA runtime | 2 | ~120 |
-| DOM renderer | 1 | ~80 |
-| Tailwind bridge | 1 | ~100 |
-| Error messages | 1 | ~60 |
-| Figma verification | 2 | ~120 |
-| Agent loop | 0.5 | ~10 (mostly JS) |
-| **Total** | **~10 weeks** | **~700** |
+Actual lines by module. Planned estimates from the original sketch are shown for reference; real sizes landed higher because SSR, the agent/measure CLIs, font validation, and tree-walking Figma diff all grew larger than the initial pencil-math.
 
-One person. Ten weeks. Under 700 lines of Shen.
+| Module | Role | Planned | Actual |
+|---|---|---|---|
+| `proofs.shen` | Layout proof datatypes (tiered) | ~100 | 96 |
+| `layout.shen` | Node types + Textura bridge + overflow→CSS | ~100 | 138 |
+| `errors.shen` | Structured JSON errors + fix suggestions | ~60 | 95 |
+| `figma.shen` | Structural diff against Figma JSON | ~120 | 240 |
+| `ssr.shen` | SSR renderer → static HTML | (unplanned) | 140 |
+| `dom.shen` | DOM renderer (browser) | ~80 | 84 |
+| `tailwind.shen` | `defcc` grammar for `tw` macro | ~100 | 146 |
+| `tea.shen` | Optional Elm-Architecture runtime | ~120 | 127 |
+| `witness.shen` | Loader | ~10 | 17 |
+| **Total Shen** | | **~700** | **~1,095** |
+
+JS glue: `boot.js` 212, `cli/check.js` 190, `cli/agent.js` 128, `cli/measure.js` 160, `cli/verify.js` 44. **~730 lines total JS glue.**
 
 ---
 
@@ -595,8 +617,8 @@ Textura gives us Pretext + Yoga as a single `computeLayout` — for free.
 ShenScript gives us JS interop — for free.
 
 We're not building a language or a layout engine.
-We're writing 700 lines of Shen that connect three existing,
-proven tools in a way nobody has before.
+We're writing ~1,100 lines of Shen (plus ~730 lines of JS glue)
+that connect three existing, proven tools in a way nobody has before.
 
 Proofs erase after compilation. Zero proof code ships to production.
 The tiered system means developers get instant feedback on static
