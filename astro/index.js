@@ -27,10 +27,11 @@ export default function witness() {
           vite: {
             plugins: [witnessVitePlugin()],
             ssr: {
-              // Keep the witness runtime + shen-script out of Vite's ESM
-              // dependency analysis; they're CJS with dynamic loads.
-              noExternal: [],
-              external: ['witness'],
+              // Keep witness + its subpath exports out of Vite's SSR bundle.
+              // shen-script boots from absolute paths inside the package and
+              // uses dynamic require() of .shen sources, which rollup can't
+              // statically analyze.
+              external: [/^witness($|\/)/],
             },
           },
         });

@@ -9,7 +9,13 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 
 const require = createRequire(import.meta.url);
-const { boot } = require('../boot.js');
+// In consumer projects this resolves via node_modules; when running the
+// witness repo's own test suite, fall back to the sibling boot.js.
+function loadBoot() {
+  try { return require('witness').boot; }
+  catch { return require('../boot.js').boot; }
+}
+const boot = loadBoot();
 
 let shenPromise = null;
 const fileEntries = new Map(); // filepath -> entry-name already loaded
