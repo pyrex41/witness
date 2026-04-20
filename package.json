@@ -3,13 +3,19 @@
   "version": "0.1.0",
   "description": "Shen extension that makes layout overflow a compile-time type error",
   "main": "boot.js",
+  "exports": {
+    ".": "./boot.js",
+    "./astro": "./astro/index.js",
+    "./astro/server": "./astro/server.js",
+    "./astro/runtime": "./astro/runtime.js"
+  },
   "bin": {
     "witness": "./cli/check.js",
     "witness-verify": "./cli/verify.js",
     "witness-agent": "./cli/agent.js"
   },
   "scripts": {
-    "test": "node test/smoke.js && node test/cli.test.js && node test/responsive.test.js",
+    "test": "node test/smoke.js && node test/cli.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
     "smoke": "node test/smoke.js",
     "test:cli": "node test/cli.test.js"
   },
