@@ -9,7 +9,7 @@
     "witness-agent": "./cli/agent.js"
   },
   "scripts": {
-    "test": "node test/smoke.js && node test/cli.test.js",
+    "test": "node test/smoke.js && node test/cli.test.js && node test/responsive.test.js",
     "smoke": "node test/smoke.js",
     "test:cli": "node test/cli.test.js"
   },

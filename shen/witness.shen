@@ -11,6 +11,7 @@
 (load "shen/tailwind.shen")
 (load "shen/dom.shen")
 (load "shen/ssr.shen")
+(load "shen/responsive.shen")
 (load "shen/figma.shen")
 
 \\ Enable type checking for all subsequent code
