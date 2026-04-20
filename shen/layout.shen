@@ -97,12 +97,21 @@
       (map (/. C (to-textura C)) Children))
 
   [text-node [proven-text Text Font MaxW]] ->
-    (textura-text Text Font 20 MaxW 0 "visible")
+    (textura-text Text Font 0 MaxW 0 "visible")
 
   [text-node [handled-text Text Font MaxW Overflow]] ->
-    (textura-text Text Font 20 999999
+    (textura-text Text Font 0 999999
       (clip-width Overflow MaxW)
       (overflow->css Overflow))
+
+  [with-class Class Inner] ->
+    (js.set-prop! (to-textura Inner) "className" Class)
+
+  [with-tag Tag Inner] ->
+    (js.set-prop! (to-textura Inner) "htmlTag" Tag)
+
+  [with-href Url Inner] ->
+    (js.set-prop! (to-textura Inner) "href" Url)
 
   [spacer W H] ->
     (textura-box W H))

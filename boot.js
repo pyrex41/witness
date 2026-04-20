@@ -109,22 +109,38 @@ async function boot(options = {}) {
   //   - `clipWidth` : the author-declared MaxW. When > 0 we override output.width so
   //                   the rendered CSS width matches what the author asked for, even
   //                   though Yoga measured the text at intrinsic (unwrapped) width.
-  function propagateOverflow(input, output) {
-    if (input && output && output.text !== undefined) {
+  function propagateMetadata(input, output) {
+    if (!input || !output) return;
+    if (input.className !== undefined) output.className = input.className;
+    if (input.htmlTag !== undefined) output.htmlTag = input.htmlTag;
+    if (input.href !== undefined) output.href = input.href;
+    if (output.text !== undefined) {
       if (input.overflow !== undefined) output.overflow = input.overflow;
       if (typeof input.clipWidth === 'number' && input.clipWidth > 0) {
         output.width = input.clipWidth;
       }
+      if (typeof input.font === 'string') output.font = input.font;
+      if (typeof input.fontSize === 'number') output.fontSize = input.fontSize;
+      if (typeof input.fontFamily === 'string') output.fontFamily = input.fontFamily;
+      if (typeof input.lineHeight === 'number') output.lineHeight = input.lineHeight;
     }
-    if (input && Array.isArray(input.children) && output && Array.isArray(output.children)) {
+    if (Array.isArray(input.children) && Array.isArray(output.children)) {
       const n = Math.min(input.children.length, output.children.length);
-      for (let i = 0; i < n; i++) propagateOverflow(input.children[i], output.children[i]);
+      for (let i = 0; i < n; i++) propagateMetadata(input.children[i], output.children[i]);
     }
   }
   await $.define('textura.layout', (tree) => {
     const out = computeLayout(tree);
-    propagateOverflow(tree, out);
+    propagateMetadata(tree, out);
     return out;
+  });
+
+  // Direct mutation helper for Shen — attaches a JS-side property to an
+  // already-constructed textura input node. Used by `with-class` / `with-tag`
+  // wrappers to decorate nodes without changing textura-obj's signature.
+  await $.define('js.set-prop!', (obj, key, value) => {
+    if (obj != null) obj[String(key)] = value;
+    return obj;
   });
 
   // --- Textura tree builders (called from Shen, return JS objects) ---
@@ -153,14 +169,25 @@ async function boot(options = {}) {
   //   - `clipWidth` is the displayed width at render time (e.g. for ellipsis).
   //     0 means no clipping; the renderer uses Yoga's computed width.
   //   - `overflow` is the CSS overflow strategy tag.
-  await $.define('textura-text', (text, font, lineHeight, width, clipWidth, overflow) => ({
-    text: String(text),
-    font: String(font),
-    lineHeight: lineHeight,
-    width: width,
-    clipWidth: clipWidth,
-    overflow: String(overflow)
-  }));
+  await $.define('textura-text', (text, font, lineHeight, width, clipWidth, overflow) => {
+    const f = String(font);
+    const m = f.match(/^([\d.]+)(?:px)?\s+(.+)$/);
+    const fontSize = m ? parseFloat(m[1]) : null;
+    // lineHeight 0 = auto: scale with font-size for consistent descender room.
+    const lh = lineHeight && lineHeight > 0
+      ? lineHeight
+      : (fontSize ? Math.ceil(fontSize * 1.4) : 20);
+    return {
+      text: String(text),
+      font: f,
+      fontSize,
+      fontFamily: m ? m[2].trim() : f,
+      lineHeight: lh,
+      width,
+      clipWidth,
+      overflow: String(overflow),
+    };
+  });
 
   await $.define('textura-box', (w, h) => ({ width: w, height: h }));
 

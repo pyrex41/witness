@@ -64,10 +64,24 @@
   C -> C)
 
 \\ --- Render text content as HTML ---
+\\ Pin font + line-height on the span so the browser renders at exactly
+\\ the size Textura measured with — preserving the layout invariant.
+
+(define ssr-text-span-style
+  Layout ->
+    (let Family (ssr-str-field Layout "fontFamily")
+         Size   (js.get Layout "fontSize")
+         LH     (js.get Layout "lineHeight")
+         LHPx   (if (js.undefined? LH) "20px" (cn (str LH) "px"))
+         FamCSS (if (= Family "") "" (cn "font-family:" (cn Family ";")))
+         SizeCSS (if (js.undefined? Size) "" (cn "font-size:" (cn (str Size) "px;")))
+      (cn FamCSS (cn SizeCSS (cn "line-height:" (cn LHPx ";margin:0;padding:0;"))))))
 
 (define render-text-html
   Layout ->
-    (cn (open-tag "span")
+    (cn (open-tag-attrs "span"
+          (cn "style=" (cn (n->string 34)
+            (cn (ssr-text-span-style Layout) (n->string 34)))))
       (cn (html-escape (js.get Layout "text"))
         (close-tag "span"))))
 
@@ -84,20 +98,53 @@
   [] -> ""
   [S | Ss] -> (cn S (concat-strings Ss)))
 
+\\ --- Read optional JS string field (undefined → "") ---
+
+(define ssr-str-field
+  Layout Key ->
+    (let V (js.get Layout Key)
+      (if (js.undefined? V) "" (if (string? V) V ""))))
+
+\\ --- Class attribute fragment: empty when no className ---
+
+(define ssr-class-attr
+  Layout ->
+    (let C (ssr-str-field Layout "className")
+      (if (= C "") "" (cn "class=" (cn (n->string 34) (cn C (cn (n->string 34) " ")))))))
+
+\\ --- href attribute fragment: empty when no href ---
+
+(define ssr-href-attr
+  Layout ->
+    (let H (ssr-str-field Layout "href")
+      (if (= H "") "" (cn "href=" (cn (n->string 34) (cn H (cn (n->string 34) " ")))))))
+
+\\ --- HTML tag for this node (default: div) ---
+
+(define ssr-tag
+  Layout ->
+    (let T (ssr-str-field Layout "htmlTag")
+      (if (= T "") "div" T)))
+
 \\ --- Recursively walk computed layout, producing HTML string ---
 
 (define render-node-html
   Layout ->
-    (let BaseStyle (cn "position:absolute;left:" (cn (ssr-px (js.get Layout "x"))
+    (let Tag (ssr-tag Layout)
+         BaseStyle (cn "position:absolute;left:" (cn (ssr-px (js.get Layout "x"))
                     (cn ";top:" (cn (ssr-px (js.get Layout "y"))
                     (cn ";width:" (cn (ssr-px (js.get Layout "width"))
-                    (cn ";height:" (cn (ssr-px (js.get Layout "height")) ";"))))))))
-         Style (cn BaseStyle (if (ssr-has-text? Layout) (ssr-overflow-css Layout) ""))
-         Attrs (cn "style=" (cn (n->string 34) (cn Style (n->string 34))))
+                    (cn ";height:" (cn (ssr-px (js.get Layout "height")) ";margin:0;padding:0;box-sizing:border-box;font:inherit;"))))))))
+         WrapperLH (if (ssr-has-text? Layout)
+                       (let LH (js.get Layout "lineHeight")
+                         (if (js.undefined? LH) "" (cn "line-height:" (cn (str LH) "px;"))))
+                       "")
+         Style (cn BaseStyle (cn WrapperLH (if (ssr-has-text? Layout) (ssr-overflow-css Layout) "")))
+         Attrs (cn (ssr-class-attr Layout) (cn (ssr-href-attr Layout) (cn "style=" (cn (n->string 34) (cn Style (n->string 34))))))
          Content (if (ssr-has-text? Layout)
                      (render-text-html Layout)
                      (render-children-html Layout))
-      (cn (open-tag-attrs "div" Attrs) (cn Content (close-tag "div")))))
+      (cn (open-tag-attrs Tag Attrs) (cn Content (close-tag Tag)))))
 
 \\ --- Wrap in full HTML document ---
 
