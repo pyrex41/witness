@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const fs = require('fs');
+const path = require('path');
 const { boot } = require('../boot');
 
 const HELP = `Usage: witness <command> [options] [files...]
@@ -58,7 +59,7 @@ async function main() {
 
     const $ = await boot();
     await $.exec('(tc -)');
-    await $.load(renderFiles[0]);
+    await $.load(path.resolve(renderFiles[0]));
     const htmlStr = await $.exec(
       `(render-html-doc (solve-layout ${expr} ${width} ${height}))`
     );
@@ -118,7 +119,7 @@ async function main() {
     console.log(`Verifying ${files[0]} against Figma spec ${figmaSpec} (tolerance: ${figmaTolerance}px, expr: ${figmaExpr})...`);
     try {
       await $.exec('(tc -)');
-      await $.load(files[0]);
+      await $.load(path.resolve(files[0]));
       const result = await $.exec(`(verify-figma "${figmaSpec}" ${figmaExpr} ${figmaTolerance})`);
       const arr = $.toArray(result);
       const tag = arr[0];
@@ -177,7 +178,7 @@ async function main() {
   for (const file of files) {
     console.log(`Checking ${file}...`);
     try {
-      await $.load(file);
+      await $.load(path.resolve(file));
       console.log(`  \u2713 ${file} passed`);
     } catch (err) {
       console.error(`  \u2717 ${file}: ${err.message}`);

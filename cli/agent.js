@@ -2,6 +2,7 @@
 // witness agent <files...> [--max-iter N] [--dry-run]
 // Self-correcting agent loop: check files, report errors, apply fixes, iterate
 const fs = require('fs');
+const path = require('path');
 const { boot } = require('../boot');
 
 function applyWidenEdit(filePath, oldWidth, newWidth) {
@@ -45,7 +46,7 @@ async function agent(files, maxIter, dryRun) {
 
     for (const file of files) {
       try {
-        await $.load(file);
+        await $.load(path.resolve(file));
       } catch (err) {
         errors.push({ file, message: err.message });
       }

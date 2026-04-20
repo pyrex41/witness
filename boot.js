@@ -9,6 +9,7 @@ if (typeof globalThis.OffscreenCanvas === 'undefined') {
 }
 
 const fs = require('fs');
+const path = require('path');
 const Shen = require('shen-script');
 const { init, computeLayout } = require('textura');
 const { prepareWithSegments, layoutWithLines } = require('@chenglou/pretext');
@@ -27,9 +28,14 @@ class OutStream {
 }
 
 async function boot(options = {}) {
+  // Resolve relative shen paths against the package dir so that both the
+  // top-level load and transitive `(load "shen/...")` calls inside witness.shen
+  // find their files regardless of the caller's cwd. Absolute paths pass
+  // through unchanged, so user code can still `$.load(absolutePath)`.
+  const resolveShenPath = p => path.isAbsolute(p) ? p : path.join(__dirname, p);
   const $ = await new Shen({
-    openRead: path => new InStream(path),
-    openWrite: path => new OutStream(path),
+    openRead: p => new InStream(resolveShenPath(p)),
+    openWrite: p => new OutStream(resolveShenPath(p)),
     InStream,
     OutStream,
   });
@@ -229,8 +235,10 @@ async function boot(options = {}) {
   });
 
   // --- Load Shen modules ---
+  // Resolve relative to this file so the package works when installed as a
+  // dependency, without requiring callers to chdir into witness's directory.
   if (!options.skipLoad) {
-    await $.load('shen/witness.shen');
+    await $.load(path.join(__dirname, 'shen/witness.shen'));
   }
 
   return $;

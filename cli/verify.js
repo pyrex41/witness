@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // witness verify <figma.json> <shen-file> [tolerance] [--expr <shen-expr>]
 // Figma structural verification wrapper
+const path = require('path');
 const { boot } = require('../boot');
 
 async function main() {
@@ -25,7 +26,7 @@ async function main() {
 
   const $ = await boot();
   await $.exec('(tc -)');
-  await $.load(shenFile);
+  await $.load(path.resolve(shenFile));
 
   const result = await $.exec(`(verify-figma "${figmaJson}" ${expr} ${tolerance})`);
   const arr = $.toArray(result);
