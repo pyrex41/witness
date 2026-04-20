@@ -10,7 +10,7 @@ if (typeof globalThis.OffscreenCanvas === 'undefined') {
 
 const fs = require('fs');
 const path = require('path');
-const Shen = require('shen-script');
+const Shen = require('./vendor/shen-script/lib/shen.js');
 const { init, computeLayout } = require('textura');
 const { prepareWithSegments, layoutWithLines } = require('@chenglou/pretext');
 

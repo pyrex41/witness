@@ -1,0 +1,55 @@
+{
+  "name": "shen-script",
+  "version": "0.17.0",
+  "description": "Shen for JavaScript",
+  "keywords": [
+    "shen",
+    "language"
+  ],
+  "author": "Robert Koeninger",
+  "license": "BSD-3-Clause",
+  "repository": "github:rkoeninger/ShenScript",
+  "main": "lib/shen.js",
+  "files": [
+    "lib/*.js",
+    "kernel/LICENSE.txt"
+  ],
+  "devDependencies": {
+    "@babel/core": "^7.7.5",
+    "@babel/preset-env": "^7.7.5",
+    "babel-loader": "^8.0.6",
+    "eslint": "^5.16.0",
+    "follow-redirects": "^1.9.0",
+    "kind-of": "^6.0.3",
+    "minimist": "^1.2.5",
+    "mocha": "^9.0.3",
+    "mocha-each": "^1.2.0",
+    "parsimmon": "^1.13.0",
+    "rimraf": "^2.7.1",
+    "ssri": "^8.0.1",
+    "tar": "^4.4.13",
+    "tempfile": "^3.0.0",
+    "terser-webpack-plugin": "^2.2.2",
+    "webpack": "^4.41.2",
+    "webpack-cli": "^3.3.10"
+  },
+  "dependencies": {
+    "astring": "^1.4.3",
+    "awaitify-stream": "^1.0.2"
+  },
+  "scripts": {
+    "lint": "eslint index.*.js lib/**/*.js scripts/**/*.js test/**/*.js --ignore-pattern lib/kernel.js",
+    "test": "npm run test-backend && npm run test-frontend && npm run test-kernel",
+    "fetch-kernel": "node scripts/fetch.js",
+    "test-backend": "mocha test/backend/test.*.js --reporter dot --timeout 5000",
+    "render-kernel": "node scripts/render.js",
+    "test-kernel": "node test/kernel/test.kernel.js",
+    "test-frontend": "mocha test/frontend/test.*.js --reporter dot --timeout 5000",
+    "repl": "node scripts/repl.js",
+    "start": "webpack-cli --watch --env.mode=development",
+    "bundle-dev": "webpack-cli --env.mode=development",
+    "bundle": "webpack-cli --env.mode=production",
+    "bundle-min": "webpack-cli --env.mode=production --env.min",
+    "bundles": "npm run bundle-dev && npm run bundle && npm run bundle-min"
+  }
+}

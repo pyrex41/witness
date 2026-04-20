@@ -14,8 +14,9 @@
     "test:cli": "node test/cli.test.js"
   },
   "dependencies": {
+    "astring": "^1.4.3",
+    "awaitify-stream": "^1.0.2",
     "canvas": "^3.2.2",
-    "shen-script": "file:./shen-script-0.17.0.tgz",
     "textura": "^1.1.1"
   }
 }
