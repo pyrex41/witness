@@ -123,6 +123,40 @@ async function main() {
   check('prop-spec min-chars violation throws', propMinThrew,
     'expected min-chars violation');
 
+  // max-width is the Tier-2 bridge from props to layout: the prop value
+  // is measured at the component boundary and rejected if it would
+  // overflow MaxW at the declared font, so downstream layout never sees
+  // an overflowing string. This is the honest path for prop-driven text
+  // that must fit a proven cell — proven-text itself only accepts
+  // literals.
+  const fileD = path.join(dir, 'D.shen');
+  writeFileSync(fileD, `
+(prop-spec "label" (max-width "14px monospace" 60))
+(define render
+  Props ->
+    [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
+      [[text-node (handled-text (js.get Props "label") "14px monospace" 60 visible)]]])
+`);
+
+  const d1 = await renderComponent(fileD, { label: 'ok' });
+  check('prop-spec max-width passes for fitting text',
+    d1.includes('>ok</span>'), d1.slice(0, 80));
+
+  let propMaxWThrew = false;
+  let propMaxWMsg = '';
+  try {
+    await renderComponent(fileD, { label: 'this label will not fit in sixty pixels' });
+  } catch (e) {
+    propMaxWMsg = String(e?.message ?? e);
+    propMaxWThrew = /prop-spec violations/.test(propMaxWMsg)
+      && /max-width/.test(propMaxWMsg);
+  }
+  check('prop-spec max-width violation throws', propMaxWThrew,
+    `expected max-width violation, got: ${propMaxWMsg.slice(0, 160)}`);
+  check('max-width violation names the key and measured width',
+    /label/.test(propMaxWMsg) && /measured=/.test(propMaxWMsg),
+    propMaxWMsg.slice(0, 160));
+
   // Components without prop-spec forms must not pay any penalty
   const c2 = await renderComponent(fileA, { label: 'no specs here' });
   check('files without prop-spec render unaffected', c2.includes('>no specs here</span>'),

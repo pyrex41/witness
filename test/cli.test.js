@@ -80,6 +80,27 @@ test('witness dev with no files shows error', () => {
   if (!out.includes('No files specified')) throw new Error('Expected "No files specified"');
 });
 
+// Phase 4 regression: (proven-text X ...) where X is not a literal must
+// be caught at load time — NOT at render — by trust.shen's macro. This
+// test locks the CLI path in: `witness dev` does a $.load of the file,
+// so the macro fires before any layout runs.
+test('witness dev rejects proven-text with non-literal first arg', () => {
+  const tmp = path.join(os.tmpdir(), `witness-trust-${Date.now()}.shen`);
+  fs.writeFileSync(tmp, `
+(define render
+  Props ->
+    [text-node (proven-text (js.get Props "title") (mk-font "Inter" 14) 96)])
+`);
+  try {
+    const out = run(`dev ${tmp}`, true);
+    if (!/proven-text requires a literal string/.test(out)) {
+      throw new Error(`Expected literal-string rejection message. Got:\n${out}`);
+    }
+  } finally {
+    fs.unlinkSync(tmp);
+  }
+});
+
 // Test 5: agent help
 test('witness agent --help shows usage', () => {
   const out = execSync('node cli/agent.js --help', {
