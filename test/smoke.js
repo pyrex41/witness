@@ -5,7 +5,7 @@ globalThis.OffscreenCanvas = class OffscreenCanvas {
   getContext(type) { return this._canvas.getContext(type); }
 };
 
-const Shen = require('shen-script');
+const Shen = require('../vendor/shen-script/lib/shen.js');
 const { init, computeLayout } = require('textura');
 
 async function main() {

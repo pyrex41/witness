@@ -19,6 +19,10 @@ const boot = loadBoot();
 
 let shenPromise = null;
 const fileEntries = new Map(); // filepath -> entry-name already loaded
+// Per-file prop-spec list, in the format harvest-prop-specs returns:
+// a Shen list of [Key Constraint] tuples. Stored as the raw shen value
+// returned by $.exec so it can be passed back into (enforce-props ...).
+const fileSpecs = new Map(); // filepath -> shen-list of specs
 
 let queue = Promise.resolve();
 function withLock(fn) {
@@ -64,6 +68,12 @@ async function loadFile($, filepath) {
     try { unlinkSync(tmpfile); } catch {}
   }
   fileEntries.set(filepath, entry);
+  // Drain the global pending spec list into a per-file bucket. We stash the
+  // result under a stable shen-side global so render-time enforce-props can
+  // read it without us round-tripping the whole list through JS.
+  const specsName = `__witness_specs_${id}`;
+  await $.exec(`(set ${specsName} (harvest-prop-specs))`);
+  fileSpecs.set(filepath, specsName);
   return entry;
 }
 
@@ -74,6 +84,14 @@ export async function renderComponent(filepath, props) {
     if (!entry) entry = await loadFile($, filepath);
     const propsName = `__witness_props_${hashPath(filepath)}`;
     await $.define(propsName, () => props || {});
+    // enforce-props is a no-op when the file declared no (prop-spec ...)
+    // forms, so untouched components pay nothing. Failures throw before
+    // render runs, so the error message points at the malformed prop bag
+    // rather than at downstream layout overflow caused by it.
+    const specsName = fileSpecs.get(filepath);
+    if (specsName) {
+      await $.exec(`(enforce-props (value ${specsName}) (${propsName}))`);
+    }
     return $.exec(`(render-fragment (${entry} (${propsName})))`);
   });
 }
@@ -81,4 +99,5 @@ export async function renderComponent(filepath, props) {
 // Called by the vite plugin's HMR hook.
 export function invalidate(filepath) {
   fileEntries.delete(filepath);
+  fileSpecs.delete(filepath);
 }

@@ -75,6 +75,15 @@
   visible _ -> 0
   _       MaxW -> MaxW)
 
+\\ --- Yoga width for handled-text ---
+\\ Mirrors clip-width: for visible we let Yoga measure intrinsically (0 =
+\\ unset); for ellipsis/clip we cap Yoga's cell at MaxW so the CSS
+\\ truncation works without distorting sibling flex layout.
+
+(define yoga-width-for-overflow
+  visible _    -> 0
+  _       MaxW -> MaxW)
+
 \\ --- Convert Witness node tree to Textura input tree ---
 \\
 \\ Text measurement note: we always pass 999999 as the Yoga layout width for
@@ -96,11 +105,39 @@
       (get-min-height Props)
       (map (/. C (to-textura C)) Children))
 
+  \\ proven-text: intrinsic layout, proof-only bound.
+  \\
+  \\ MaxW is a proof obligation — it says "I claim measure(Text,Font) <= MaxW".
+  \\ It is NOT the rendered cell width. Rendering uses intrinsic width (Yoga
+  \\ measures via Pretext), so a tight proof bound doesn't produce visual
+  \\ whitespace. Declaring (proven-text "reuben" (mono 14) 72) gets you a
+  \\ 46px cell, not a 72px one — the 72 is "at most," and the actual layout
+  \\ stays tight.
+  \\
+  \\ This was the original bug the screenshot exposed: setting Yoga width
+  \\ to MaxW made every cell render at its declared bound, so any slack
+  \\ turned into dead whitespace between flex siblings.
+  \\
+  \\ Render-time fit check is kept: static literals also fail at load via
+  \\ assert-fits, dynamic prop values fail here with the same message format.
   [text-node [proven-text Text Font MaxW]] ->
-    (textura-text Text Font 0 MaxW 0 "visible")
+    (if (fits? Text Font MaxW)
+        (textura-text Text Font 0 0 0 "visible")
+        (simple-error
+          (cn "Layout overflow: '" (cn Text
+            (cn "' in " (cn Font
+              (cn " = " (cn (str (measure Text Font))
+                (cn "px, container = " (cn (str MaxW) "px"))))))))))
 
+  \\ handled-text: escape hatch with explicit overflow strategy.
+  \\
+  \\ visible  -> intrinsic width; overflow is the author's responsibility.
+  \\ ellipsis -> cap Yoga width at MaxW so siblings pack correctly; CSS
+  \\             text-overflow does the visual cut at MaxW.
+  \\ clip     -> same as ellipsis, different CSS strategy.
   [text-node [handled-text Text Font MaxW Overflow]] ->
-    (textura-text Text Font 0 999999
+    (textura-text Text Font 0
+      (yoga-width-for-overflow Overflow MaxW)
       (clip-width Overflow MaxW)
       (overflow->css Overflow))
 
@@ -143,5 +180,6 @@
 (declare get-min-height [frame-props --> number])
 (declare overflow->css [overflow --> string])
 (declare clip-width [overflow --> [number --> number]])
+(declare yoga-width-for-overflow [overflow --> [number --> number]])
 (declare to-textura [node --> textura-tree])
 (declare solve-layout [node --> [number --> [number --> computed-layout]]])

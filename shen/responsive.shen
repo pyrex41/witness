@@ -47,6 +47,17 @@
 \\ wrapping its solved layout. position:relative so children's position:absolute
 \\ is scoped to the wrapper rather than the page.
 
+\\ Wrapper style: position:relative so absolutely-positioned descendants scope
+\\ here, plus explicit width/height lifted from the solved root so the wrapper
+\\ reserves space in a flow-layout parent (e.g. <li> in <ul>). Without this,
+\\ the wrapper collapses to 0×0 and sibling fragments stack on top of each
+\\ other when the enclosing container doesn't fix a height.
+(define wrapper-style
+  Layout ->
+    (concat-strings
+      ["position:relative;width:" (ssr-px (js.get Layout "width"))
+       ";height:" (ssr-px (js.get Layout "height")) ";"]))
+
 (define render-branch
   [at W Tree] ->
     (let Q (n->string 34)
@@ -54,7 +65,7 @@
          Body (render-node-html Layout)
          Attrs (concat-strings
                  ["class=" Q (wt-bp-class W) Q
-                  " style=" Q "position:relative;" Q])
+                  " style=" Q (wrapper-style Layout) Q])
       (concat-strings [(open-tag-attrs "div" Attrs) Body (close-tag "div")])))
 
 \\ --- CSS generation ---
@@ -114,7 +125,7 @@
     (let Q (n->string 34)
          Layout (textura.layout (to-textura Tree))
          Body (render-node-html Layout)
-         Attrs (concat-strings ["style=" Q "position:relative;" Q])
+         Attrs (concat-strings ["style=" Q (wrapper-style Layout) Q])
       (concat-strings [(open-tag-attrs "div" Attrs) Body (close-tag "div")])))
 
 \\ --- Type declarations ---

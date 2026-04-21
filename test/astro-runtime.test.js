@@ -15,16 +15,16 @@ async function main() {
 (define render
   Props ->
     [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
-      [[text-node [proven-text (js.get Props "label") "14 monospace" 120]]]])
+      [[text-node [proven-text (js.get Props "label") "14px monospace" 120]]]])
 `);
   writeFileSync(fileB, `
 (define render
   Props ->
     [responsive
       [at 375 [frame (mk-props9 300 0 "row" 0 0 "" "" 0 0)
-                [[text-node [proven-text "small" "14 monospace" 80]]]]]
+                [[text-node [proven-text "small" "14px monospace" 80]]]]]
       [at 1024 [frame (mk-props9 900 0 "row" 0 0 "" "" 0 0)
-                 [[text-node [proven-text (js.get Props "label") "14 monospace" 200]]]]]])
+                 [[text-node [proven-text (js.get Props "label") "14px monospace" 200]]]]]])
 `);
 
   const { renderComponent, invalidate } = await import('../astro/runtime.js');
@@ -53,21 +53,63 @@ async function main() {
   const a3 = await renderComponent(fileA, { label: 'again' });
   check('A still works after B loaded (no clobber)', a3.includes('>again</span>'), a3.slice(0, 80));
 
-  // Proof-failure path: text that doesn't fit should throw.
-  let threw = false;
+  // proven-text now checks per-render, so a prop value that exceeds the
+  // declared width must throw. Static literals fail at load time via
+  // assert-fits; this is the dynamic counterpart with the same semantics.
+  let provenThrew = false;
   try {
     await renderComponent(fileA, { label: 'way too long for a 120px cell haha' });
   } catch (e) {
-    threw = true;
+    provenThrew = /Layout overflow/.test(String(e?.message ?? e));
   }
-  check('overflow in a proven-text props renders through', true, '');
-  // Note: proven-text is a load-time assertion, not a per-render proof, so
-  // this specific case won't throw. That's a known semantic of the combinator.
-  // (We're only confirming it doesn't crash.)
+  check('proven-text props that overflow at render throw', provenThrew,
+    'expected Layout overflow error, got none');
 
   invalidate(fileA);
   const a4 = await renderComponent(fileA, { label: 'reloaded' });
   check('invalidate+re-render works', a4.includes('>reloaded</span>'), a4.slice(0, 80));
+
+  // --- prop-spec layer ---
+  const fileC = path.join(dir, 'C.shen');
+  writeFileSync(fileC, `
+(prop-spec "title" (max-chars 10))
+(prop-spec "tagline" (min-chars 1))
+(define render
+  Props ->
+    [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
+      [[text-node [handled-text (js.get Props "title") "12px monospace" 200 ellipsis]]]])
+`);
+
+  const c1 = await renderComponent(fileC, { title: 'short', tagline: 'ok' });
+  check('prop-spec passes when within bounds', c1.includes('>short</span>'),
+    c1.slice(0, 80));
+
+  let propMaxThrew = false;
+  let propMaxMsg = '';
+  try {
+    await renderComponent(fileC, { title: 'this title is way too long', tagline: 'ok' });
+  } catch (e) {
+    propMaxThrew = /prop-spec violations/.test(String(e?.message ?? e));
+    propMaxMsg = String(e?.message ?? e);
+  }
+  check('prop-spec max-chars violation throws', propMaxThrew,
+    `expected prop-spec violations error, got: ${propMaxMsg.slice(0, 120)}`);
+  check('violation message names the offending key', /title/.test(propMaxMsg),
+    propMaxMsg.slice(0, 120));
+
+  let propMinThrew = false;
+  try {
+    await renderComponent(fileC, { title: 'short', tagline: '' });
+  } catch (e) {
+    propMinThrew = /min-chars/.test(String(e?.message ?? e));
+  }
+  check('prop-spec min-chars violation throws', propMinThrew,
+    'expected min-chars violation');
+
+  // Components without prop-spec forms must not pay any penalty
+  const c2 = await renderComponent(fileA, { label: 'no specs here' });
+  check('files without prop-spec render unaffected', c2.includes('>no specs here</span>'),
+    c2.slice(0, 80));
 
   rmSync(dir, { recursive: true, force: true });
 
