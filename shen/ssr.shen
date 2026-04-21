@@ -66,6 +66,19 @@
 \\ --- Render text content as HTML ---
 \\ Pin font + line-height on the span so the browser renders at exactly
 \\ the size Textura measured with — preserving the layout invariant.
+\\
+\\ Two data-witness-* attrs mark every text cell so a geometry-truth test
+\\ can compare the browser's rendered width against the prover's claim:
+\\
+\\   data-witness-text="<predicted-px>"
+\\       The width Pretext/Yoga predicted for this text cell. The browser's
+\\       actual span width must equal this (±1px) or the prover is wrong
+\\       about what the browser will render.
+\\
+\\   data-witness-overflow="visible|ellipsis|clip"
+\\       For visible cells the rendered text must fit the parent cell
+\\       (scrollWidth ≤ parent clientWidth). For ellipsis/clip the browser
+\\       is expected to truncate via CSS, so overflow is allowed.
 
 (define ssr-text-span-style
   Layout ->
@@ -77,11 +90,22 @@
          SizeCSS (if (js.undefined? Size) "" (cn "font-size:" (cn (str Size) "px;")))
       (cn FamCSS (cn SizeCSS (cn "line-height:" (cn LHPx ";margin:0;padding:0;"))))))
 
+(define ssr-text-witness-attrs
+  Layout ->
+    (let Ov (ssr-str-field Layout "overflow")
+         OvTag (if (= Ov "") "visible" Ov)
+         W (js.get Layout "width")
+         WStr (if (js.undefined? W) "0" (str W))
+         Q (n->string 34)
+      (cn "data-witness-text=" (cn Q (cn WStr (cn Q
+        (cn " data-witness-overflow=" (cn Q (cn OvTag Q)))))))))
+
 (define render-text-html
   Layout ->
     (cn (open-tag-attrs "span"
-          (cn "style=" (cn (n->string 34)
-            (cn (ssr-text-span-style Layout) (n->string 34)))))
+          (cn (ssr-text-witness-attrs Layout)
+            (cn " style=" (cn (n->string 34)
+              (cn (ssr-text-span-style Layout) (n->string 34))))))
       (cn (html-escape (js.get Layout "text"))
         (close-tag "span"))))
 
@@ -177,6 +201,7 @@
 (declare ssr-has-text? [computed-layout --> boolean])
 (declare ssr-overflow-css [computed-layout --> string])
 (declare ssr-overflow-from [string --> string])
+(declare ssr-text-witness-attrs [computed-layout --> string])
 (declare render-text-html [computed-layout --> string])
 (declare html-escape [string --> string])
 (declare escape-char [string --> string])
