@@ -11,20 +11,26 @@ async function main() {
   mkdirSync(dir, { recursive: true });
   const fileA = path.join(dir, 'A.shen');
   const fileB = path.join(dir, 'B.shen');
+  // fileA routes a dynamic prop value through handled-text — the
+  // post-Phase-4 honest path for strings whose content is not known at
+  // compile time. proven-text would now be rejected at load by the
+  // trust.shen macro (exercised separately in trust.test.js).
   writeFileSync(fileA, `
 (define render
   Props ->
     [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
-      [[text-node [proven-text (js.get Props "label") "14px monospace" 120]]]])
+      [[text-node (handled-text (js.get Props "label") "14px monospace" 120 visible)]]])
 `);
+  // fileB keeps its static literal proven-text branches; dynamic prop
+  // values go through handled-text.
   writeFileSync(fileB, `
 (define render
   Props ->
     [responsive
       [at 375 [frame (mk-props9 300 0 "row" 0 0 "" "" 0 0)
-                [[text-node [proven-text "small" "14px monospace" 80]]]]]
+                [[text-node (proven-text "small" "14px monospace" 80)]]]]
       [at 1024 [frame (mk-props9 900 0 "row" 0 0 "" "" 0 0)
-                 [[text-node [proven-text (js.get Props "label") "14px monospace" 200]]]]]])
+                 [[text-node (handled-text (js.get Props "label") "14px monospace" 200 visible)]]]]])
 `);
 
   const { renderComponent, invalidate } = await import('../astro/runtime.js');
@@ -53,17 +59,28 @@ async function main() {
   const a3 = await renderComponent(fileA, { label: 'again' });
   check('A still works after B loaded (no clobber)', a3.includes('>again</span>'), a3.slice(0, 80));
 
-  // proven-text now checks per-render, so a prop value that exceeds the
-  // declared width must throw. Static literals fail at load time via
-  // assert-fits; this is the dynamic counterpart with the same semantics.
-  let provenThrew = false;
+  // Post-Phase-4: a component that tries to pass a dynamic value to
+  // (proven-text ...) is rejected at load time by trust.shen's macro
+  // — before any render runs. Covered in detail by trust.test.js; here
+  // we just confirm the mechanism triggers through renderComponent's
+  // loadFile path.
+  const fileBad = path.join(dir, 'Bad.shen');
+  writeFileSync(fileBad, `
+(define render
+  Props ->
+    [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
+      [[text-node (proven-text (js.get Props "label") "14px monospace" 120)]]])
+`);
+  let badLoadThrew = false;
+  let badLoadMsg = '';
   try {
-    await renderComponent(fileA, { label: 'way too long for a 120px cell haha' });
+    await renderComponent(fileBad, { label: 'anything' });
   } catch (e) {
-    provenThrew = /Layout overflow/.test(String(e?.message ?? e));
+    badLoadMsg = String(e && e.message || e);
+    badLoadThrew = /proven-text requires a literal string/.test(badLoadMsg);
   }
-  check('proven-text props that overflow at render throw', provenThrew,
-    'expected Layout overflow error, got none');
+  check('dynamic (proven-text ...) rejected at load', badLoadThrew,
+    `expected literal-string rejection, got: ${badLoadMsg.slice(0, 160)}`);
 
   invalidate(fileA);
   const a4 = await renderComponent(fileA, { label: 'reloaded' });
@@ -77,7 +94,7 @@ async function main() {
 (define render
   Props ->
     [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
-      [[text-node [handled-text (js.get Props "title") "12px monospace" 200 ellipsis]]]])
+      [[text-node (handled-text (js.get Props "title") "12px monospace" 200 ellipsis)]]])
 `);
 
   const c1 = await renderComponent(fileC, { title: 'short', tagline: 'ok' });

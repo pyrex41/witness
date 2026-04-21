@@ -15,5 +15,12 @@
 (load "shen/props.shen")
 (load "shen/figma.shen")
 
+\\ Trust gate for proven-text must load LAST — before tc+ is fine, but
+\\ it has to come after every framework file whose read-time forms
+\\ include [proven-text ...] patterns (to-textura in layout.shen, for
+\\ one). Once installed, the macro fires on every subsequent load, so
+\\ user .shen files get the literal check regardless of tc+/tc-.
+(load "shen/trust.shen")
+
 \\ Enable type checking for all subsequent code
 (tc +)

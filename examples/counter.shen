@@ -42,16 +42,17 @@
     (tw [flex flex-col items-center gap-4 p-8]
       [(text-node (handled-text (str N) (mk-font "sans-serif" 32) 200 visible))
        (tw [flex gap-2]
-         [(counter-button "-" decrement)
-          (counter-button "+" increment)])]))
+         [(counter-button (proven-text "-" (mk-font "sans-serif" 14) 96) decrement)
+          (counter-button (proven-text "+" (mk-font "sans-serif" 14) 96) increment)])]))
 
-\\ Button with proven-text: the assert-fits calls above guarantee
-\\ "-" and "+" fit in 96px at Inter 14. proven-text makes this
-\\ a type-level contract.
+\\ Button carries a pre-proven cell. proven-text must be called with a
+\\ literal string at its use site under the Phase 4 trust model; passing
+\\ a variable would be rejected at load time. The assert-fits calls
+\\ above are a belt-and-suspenders check.
 (define counter-button
-  Label Msg ->
+  Cell Msg ->
     (tw [px-4 py-2 rounded-lg text-sm font-medium]
-      [(text-node (proven-text Label (mk-font "sans-serif" 14) 96))]))
+      [(text-node Cell)]))
 
 \\ --- Run the app (requires DOM; omitted for CLI checking) ---
 \\ (run-app (mk-app counter-init counter-update counter-view (/. _ sub-none))

@@ -1,18 +1,23 @@
 \\ proofs.shen — Layout overflow as a compile-time type error
 \\
-\\ Architecture:
-\\   1. Type system requires `where (fits? ...)` or `handled-text` — structural guarantee
-\\   2. Top-level `assert-fits` catches static overflow at load time — compile-time rejection
-\\   3. `handled-text` explicitly opts out of proof (for dynamic text, user content, etc.)
+\\ Three-tier trust model (post Phase 4):
+\\   Tier 1 — literal text:      (proven-text "lit" F W) + (assert-fits "lit" F W).
+\\                               Literal is verified at load time; the function-form
+\\                               call is gated by trust.shen's macro so only a
+\\                               string literal is accepted as the first argument.
+\\   Tier 2 — prop-bounded text: (prop-spec "key" (max-width Font W)) declared in
+\\                               the component, enforced at the component boundary
+\\                               via enforce-props. The prop value never reaches
+\\                               proven-text — the bound is checked earlier, and
+\\                               the component uses handled-text for render.
+\\   Tier 3 — dynamic text:      handled-text — CSS truncation at MaxW. No proof
+\\                               required. This is where any js.get / user content
+\\                               must go.
 \\
-\\ Tiered proof system:
-\\   Tier 1 (always): static text — assert-fits at load time, ~1ms
-\\   Tier 2 (build): bounded worst-case — assert-fits with worst-case measurement
-\\   Tier 3 (comprehensive): Figma verification, i18n sweep
-\\   Tier 4 (runtime): dynamic text — where (fits? ...) guard at runtime
-\\
-\\ NOTE: (tc +) is enabled by witness.shen AFTER this file loads,
-\\ so user code is type-checked but framework code is not.
+\\ The framework-level rule below still requires (fits? ...) : verified in the
+\\ type context for [proven-text ...] to type as safe-text. That matters under
+\\ tc+ (cli/verify with inline signatures). For the common tc- path (Astro
+\\ runtime) the read-time macro in trust.shen is the actual enforcement point.
 
 \\ --- Measure text width ---
 \\ Two paths:
@@ -61,17 +66,42 @@
 
 (declare assert-fits [string --> [string --> [number --> boolean]]])
 
+\\ --- Safe-text constructors ---
+\\ proven-text and handled-text are FUNCTIONS. Users call them; the
+\\ framework pattern-matches on the tagged lists they return (see
+\\ layout.shen's to-textura). The internal tags are proven-cell and
+\\ handled-cell: these are private to the framework. Construction via
+\\ the data-list form [proven-cell ...] would bypass trust.shen's
+\\ macro gate, so the tag is deliberately named to discourage that.
+\\
+\\ The function-call form (proven-text X F W) is the only advertised
+\\ path, and trust.shen's defmacro catches non-literal first arguments
+\\ at read time.
+
+(define proven-text
+  Text Font MaxW -> [proven-cell Text Font MaxW])
+
+(declare proven-text [string --> [string --> [number --> safe-text]]])
+
+(define handled-text
+  Text Font MaxW Overflow -> [handled-cell Text Font MaxW Overflow])
+
+(declare handled-text [string --> [string --> [number --> [overflow --> safe-text]]]])
+
 \\ --- TIERED PROOF DATATYPES ---
 
 (datatype layout-proofs
 
   \\ A text measurement proof: text fits in MaxW pixels
-  \\ Requires (fits? Text Font MaxW) : verified in the type context
-  \\ The `where` clause in user define rules provides this
+  \\ Requires (fits? Text Font MaxW) : verified in the type context.
+  \\ The `where` clause in user define rules provides this under tc+.
+  \\ Under tc- (the common Astro path), trust.shen's read-time macro
+  \\ gates construction instead — a non-literal first argument to
+  \\ (proven-text ...) is rejected before this rule ever applies.
   Text : string; Font : string; MaxW : number;
   (fits? Text Font MaxW) : verified;
   ______________________________________________
-  [proven-text Text Font MaxW] : safe-text;
+  [proven-cell Text Font MaxW] : safe-text;
 
   \\ Bounded string: string is known to be at most N chars
   S : string; N : number;
@@ -86,7 +116,7 @@
   \\   - visible         : MaxW is a documentation hint; text may render wider
   Text : string; Font : string; MaxW : number; Overflow : overflow;
   _______________________________________________
-  [handled-text Text Font MaxW Overflow] : safe-text;)
+  [handled-cell Text Font MaxW Overflow] : safe-text;)
 
 \\ --- Overflow strategies ---
 

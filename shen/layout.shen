@@ -86,11 +86,15 @@
 
 \\ --- Convert Witness node tree to Textura input tree ---
 \\
-\\ Text measurement note: we always pass 999999 as the Yoga layout width for
-\\ text nodes. This keeps Pretext from wrapping the text into multiple lines
-\\ (which would shift siblings and break Figma structural verification).
-\\ Visual clipping for ellipsis/clip is done by the renderer via CSS, using
-\\ the clip-width propagated alongside the `overflow` tag.
+\\ Text measurement note: the Yoga layout width for a text cell depends on
+\\ the overflow strategy (see yoga-width-for-overflow):
+\\   - visible           : 0 (unset; Pretext measures intrinsically)
+\\   - ellipsis / clip   : MaxW (cap the cell so siblings pack correctly,
+\\                         then the renderer does the visual cut via CSS
+\\                         text-overflow with the matching clip-width).
+\\ proven-text cells always use 0 — the proof bound is a claim about
+\\ measure(Text,Font), not a rendered cell width, so we let Yoga measure
+\\ intrinsically to avoid turning slack into whitespace.
 
 (define to-textura
   [frame Props Children] ->
@@ -118,16 +122,13 @@
   \\ to MaxW made every cell render at its declared bound, so any slack
   \\ turned into dead whitespace between flex siblings.
   \\
-  \\ Render-time fit check is kept: static literals also fail at load via
-  \\ assert-fits, dynamic prop values fail here with the same message format.
-  [text-node [proven-text Text Font MaxW]] ->
-    (if (fits? Text Font MaxW)
-        (textura-text Text Font 0 0 0 "visible")
-        (simple-error
-          (cn "Layout overflow: '" (cn Text
-            (cn "' in " (cn Font
-              (cn " = " (cn (str (measure Text Font))
-                (cn "px, container = " (cn (str MaxW) "px"))))))))))
+  \\ No render-time fit check: trust.shen's read-time macro rejects
+  \\ non-literal first arguments to (proven-text ...) before render, and
+  \\ literals are already validated by assert-fits at load time. The
+  \\ Phase-0 runtime fallback (if (fits? ...) ... (simple-error ...)) was
+  \\ redundant with those two gates and is gone.
+  [text-node [proven-cell Text Font MaxW]] ->
+    (textura-text Text Font 0 0 0 "visible")
 
   \\ handled-text: escape hatch with explicit overflow strategy.
   \\
@@ -135,7 +136,7 @@
   \\ ellipsis -> cap Yoga width at MaxW so siblings pack correctly; CSS
   \\             text-overflow does the visual cut at MaxW.
   \\ clip     -> same as ellipsis, different CSS strategy.
-  [text-node [handled-text Text Font MaxW Overflow]] ->
+  [text-node [handled-cell Text Font MaxW Overflow]] ->
     (textura-text Text Font 0
       (yoga-width-for-overflow Overflow MaxW)
       (clip-width Overflow MaxW)

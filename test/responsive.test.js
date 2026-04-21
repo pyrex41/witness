@@ -22,7 +22,7 @@ async function main() {
   const plain = await $.exec(`
     (render-fragment
       [frame (mk-props9 200 0 "row" 0 0 "" "" 0 0)
-        [[text-node [proven-text "hi" "14px monospace" 80]]]])
+        [[text-node (proven-text "hi" "14px monospace" 80)]]])
   `);
   check('plain fragment has position:relative wrapper with explicit size',
     plain.startsWith('<div style="position:relative;width:') &&
@@ -40,9 +40,9 @@ async function main() {
     (render-fragment
       [responsive
         [at 375 [frame (mk-props9 360 0 "row" 0 0 "" "" 0 0)
-                  [[text-node [proven-text "hi" "14px monospace" 80]]]]]
+                  [[text-node (proven-text "hi" "14px monospace" 80)]]]]
         [at 1024 [frame (mk-props9 1000 0 "row" 0 0 "" "" 0 0)
-                   [[text-node [proven-text "hello" "14px monospace" 80]]]]]])
+                   [[text-node (proven-text "hello" "14px monospace" 80)]]]]])
   `);
   check('responsive fragment starts with <style>',
     resp.startsWith('<style>'),
@@ -68,11 +68,11 @@ async function main() {
     (render-fragment
       [responsive
         [at 360 [frame (mk-props9 340 0 "row" 0 0 "" "" 0 0)
-                  [[text-node [proven-text "s" "14px monospace" 80]]]]]
+                  [[text-node (proven-text "s" "14px monospace" 80)]]]]
         [at 768 [frame (mk-props9 720 0 "row" 0 0 "" "" 0 0)
-                  [[text-node [proven-text "m" "14px monospace" 80]]]]]
+                  [[text-node (proven-text "m" "14px monospace" 80)]]]]
         [at 1024 [frame (mk-props9 1000 0 "row" 0 0 "" "" 0 0)
-                   [[text-node [proven-text "l" "14px monospace" 80]]]]]])
+                   [[text-node (proven-text "l" "14px monospace" 80)]]]]])
   `);
   check('3-bp cascade has one media step per non-smallest width',
     (three.match(/@media\(min-width:/g) || []).length === 2,
@@ -92,9 +92,9 @@ async function main() {
     (render-fragment
       [responsive
         [at 1024 [frame (mk-props9 1000 0 "row" 0 0 "" "" 0 0)
-                   [[text-node [proven-text "l" "14px monospace" 80]]]]]
+                   [[text-node (proven-text "l" "14px monospace" 80)]]]]
         [at 375 [frame (mk-props9 360 0 "row" 0 0 "" "" 0 0)
-                  [[text-node [proven-text "s" "14px monospace" 80]]]]]])
+                  [[text-node (proven-text "s" "14px monospace" 80)]]]]])
   `);
   check('unordered input still produces ascending cascade',
     unordered.includes('.wt-bp-1024{display:none;}') &&

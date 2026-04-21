@@ -16,28 +16,30 @@
 (assert-fits "Save" (mk-font "sans-serif" 14) 120)
 
 \\ --- Card components ---
+\\ Under the Phase 4 trust model, (proven-text ...) requires a literal string
+\\ at its call site. Components that want to carry proven content take the
+\\ pre-proven cell as a parameter rather than building it internally from a
+\\ variable.
 
 (define card-title
-  Title ->
-    [text-node [proven-text Title (mk-font "sans-serif" 18) 268]]
-      where (fits? Title (mk-font "sans-serif" 18) 268))
+  Cell -> [text-node Cell])
 
 (define card-description
   Desc ->
-    [text-node [handled-text Desc (mk-font "sans-serif" 14) 268 ellipsis]])
+    [text-node (handled-text Desc (mk-font "sans-serif" 14) 268 ellipsis)])
 
 (define card-button
-  Label ->
+  Cell ->
     (tw ["px-4" "py-2" "rounded-lg" "text-sm"]
-      [[text-node [proven-text Label (mk-font "sans-serif" 14) 120]]]))
+      [[text-node Cell]]))
 
 \\ --- Render the card view ---
 \\ Called by: witness render examples/card.shen --expr "(render-view)"
 
 (define render-view
   -> [frame (mk-props9 300 0 "column" 16 16 "" "" 0 0)
-      [(card-title "Card Title")
+      [(card-title (proven-text "Card Title" (mk-font "sans-serif" 18) 268))
        (card-description "This is a description of the card. It can be any length because handled-text accepts overflow with ellipsis.")
        (tw ["flex" "gap-2"]
-         [(card-button "View Details")
-          (card-button "Save")])]])
+         [(card-button (proven-text "View Details" (mk-font "sans-serif" 14) 120))
+          (card-button (proven-text "Save" (mk-font "sans-serif" 14) 120))])]])

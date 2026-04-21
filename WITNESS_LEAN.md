@@ -204,11 +204,14 @@ measurements before the app ever runs. This is true compile-time rejection.
 
 (datatype layout-proofs
 
-  \\ Tier 1: static text — requires (fits? ...) : verified from where clause
+  \\ Tier 1: static text — requires (fits? ...) : verified from where clause.
+  \\ The internal tag is [proven-cell ...]: the public face is the
+  \\ (proven-text X F W) function, gated at read time by trust.shen's
+  \\ macro so X must be a literal string.
   Text : string; Font : string; MaxW : number;
   (fits? Text Font MaxW) : verified;
   ______________________________________________
-  [proven-text Text Font MaxW] : safe-text;
+  [proven-cell Text Font MaxW] : safe-text;
 
   \\ Bounded strings (from API layer)
   S : string; N : number;
@@ -216,10 +219,11 @@ measurements before the app ever runs. This is true compile-time rejection.
   ______________________________________________
   S : (bounded N);
 
-  \\ Handled text: developer explicitly chose an overflow strategy
-  Text : string; Font : string; Overflow : overflow;
+  \\ Handled text: developer explicitly chose an overflow strategy.
+  \\ MaxW is the declared container width (carried through to CSS).
+  Text : string; Font : string; MaxW : number; Overflow : overflow;
   _______________________________________________
-  [handled-text Text Font Overflow] : safe-text;)
+  [handled-cell Text Font MaxW Overflow] : safe-text;)
 
 (datatype overflow-types
   ___ ellipsis : overflow;
@@ -227,30 +231,29 @@ measurements before the app ever runs. This is true compile-time rejection.
   ___ visible : overflow;)
 ```
 
-User code pattern — three options for every text node:
+User code pattern — three tiers, picked at the call site:
 
 ```shen
-\\ Option 1: Prove it fits (static text, Tier 1)
+\\ Tier 1: literal text, proven to fit
 (assert-fits "Submit" (mk-font "Inter" 14) 96)  \\ load-time check
 
 (define submit-btn
-  {string --> safe-text}
-  _ -> [proven-text "Submit" (mk-font "Inter" 14) 96]
-    where (fits? "Submit" (mk-font "Inter" 14) 96))  \\ type-level proof
+  {safe-text}
+  -> (proven-text "Submit" (mk-font "Inter" 14) 96))  \\ literal-only
 
-\\ Option 2: Handle overflow explicitly
+\\ Tier 2: dynamic prop bounded at the component boundary
+(prop-spec "title" (max-chars 80))
+(prop-spec "title" (max-width (mk-font "Inter" 14) 200))
+
+\\ Tier 3: dynamic content, CSS fail-soft
 (define dynamic-text
-  {string --> safe-text}
-  Text -> [handled-text Text (mk-font "Inter" 14) ellipsis])
-
-\\ Option 3: Runtime check with branch (Tier 4, dynamic text)
-(define user-content
-  {string --> safe-text}
-  Text -> (if (fits? Text (mk-font "Inter" 14) 200)
-              [proven-text Text (mk-font "Inter" 14) 200]
-              [handled-text Text (mk-font "Inter" 14) ellipsis])
-    where (fits? Text (mk-font "Inter" 14) 200))
+  Text -> [text-node (handled-text Text (mk-font "Inter" 14) 200 ellipsis)])
 ```
+
+Dynamic content never reaches `proven-text`. A call like
+`(proven-text (js.get Props "title") Font W)` fails at read time with a
+message naming the offending expression and pointing at `handled-text`
+or `prop-spec` as alternatives.
 
 ### Phase 3: Declarative layout → Textura tree
 

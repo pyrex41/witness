@@ -50,35 +50,42 @@ async function main() {
   check('mk-font produces CSS string', font === '14px Inter', font);
 
   // --- Type system tests ---
-  console.log('\nType system (where + verified):');
+  console.log('\nType system (literal-only proven-text):');
 
-  // proven-text with where guard — should pass
+  // Post-Phase-4: proven-text is gated at read time by trust.shen's macro
+  // and requires a literal string as its first argument. A where guard
+  // over a variable no longer rescues the call.
   const r1 = await loadShen($, `
-(define good-btn
+(define bad-btn-with-guard
   {string --> string --> number --> safe-text}
-  Text Font MaxW -> [proven-text Text Font MaxW]
+  Text Font MaxW -> (proven-text Text Font MaxW)
     where (fits? Text Font MaxW))`);
-  check('proven-text with where guard compiles', r1.ok, r1.error);
+  check('proven-text with variable even under where guard is rejected',
+    !r1.ok && /literal string/.test(r1.error || ''),
+    r1.ok ? 'should have failed' : r1.error);
 
-  // proven-text WITHOUT where guard — should be TYPE ERROR
+  // proven-text without any guard — also rejected, same reason.
   const r2 = await loadShen($, `
 (define bad-btn
   {string --> string --> number --> safe-text}
-  Text Font MaxW -> [proven-text Text Font MaxW])`);
-  check('proven-text without guard is type error', !r2.ok, 'should have failed');
+  Text Font MaxW -> (proven-text Text Font MaxW))`);
+  check('proven-text without guard is rejected', !r2.ok, 'should have failed');
+
+  // proven-text with a literal — passes the macro. (Full static-button
+  // pattern with assert+where is exercised by r7 below.)
 
   // handled-text — no proof needed
   const r3 = await loadShen($, `
 (define handled-btn
   {string --> safe-text}
-  _ -> [handled-text "Any text" "14px sans-serif" 100 ellipsis])`);
+  _ -> (handled-text "Any text" "14px sans-serif" 100 ellipsis))`);
   check('handled-text compiles without proof', r3.ok, r3.error);
 
   // handled-text with clip
   const r4 = await loadShen($, `
 (define clip-btn
   {string --> safe-text}
-  _ -> [handled-text "Any text" "14px sans-serif" 100 clip])`);
+  _ -> (handled-text "Any text" "14px sans-serif" 100 clip))`);
   check('handled-text with clip compiles', r4.ok, r4.error);
 
   // --- Compile-time assertion tests ---
@@ -103,12 +110,12 @@ async function main() {
 
 (define submit-btn
   {string --> safe-text}
-  _ -> [proven-text "Submit" "14px sans-serif" 96]
+  _ -> (proven-text "Submit" "14px sans-serif" 96)
     where (fits? "Submit" "14px sans-serif" 96))
 
 (define cancel-btn
   {string --> safe-text}
-  _ -> [proven-text "Cancel" "14px sans-serif" 96]
+  _ -> (proven-text "Cancel" "14px sans-serif" 96)
     where (fits? "Cancel" "14px sans-serif" 96))`);
   check('multiple static buttons compile', r7.ok, r7.error);
 

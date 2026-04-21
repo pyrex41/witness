@@ -33,14 +33,14 @@ See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [
 | Capability | Status |
 |---|---|
 | `assert-fits` load-time proof (Tier 1) | works |
-| `proven-text` sequent-calculus proof under `tc+` | works |
-| `handled-text` escape hatch — `ellipsis` / `clip` / `visible` render to real CSS | works |
+| `proven-text` — literal-only, enforced at read time by `trust.shen` macro | works |
+| `prop-spec` — component-boundary bounds (`max-chars`, `min-chars`, `max-width`) enforced before render (Tier 2) | works |
+| `handled-text` — visual fail-soft via CSS `ellipsis` / `clip` / `visible` (Tier 3) | works |
 | Figma structural diff, library + CLI | **WIP** — works on hand-crafted fixtures; [not yet validated](#figma-status) against real REST API exports |
-| Runtime `fits?` branching (Tier 4) | works |
 | SSR renderer → static HTML | works |
 | Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
 | `witness agent` widen-fix loop | works |
-| Bounded-string worst-case proofs (Tier 2) — `(bounded N)` type | declared, not wired |
+| Bounded-string worst-case proofs — `(bounded N)` type | declared, not wired |
 | DOM runtime (`run-app`, TEA) | library exists; browser harness TBD |
 
 ---
@@ -113,37 +113,36 @@ The compiler measures the text at build time and either grants or denies the `ve
 ```shen
 ;; This compiles:
 ;; measure("Submit", Inter 14) = 7px. 7 ≤ 96. ✓
+(assert-fits "Submit" (mk-font "Inter" 14) 96)
+
 (define submit-btn
-  {string --> safe-text}
-  _ -> [proven-text "Submit" (mk-font "Inter" 14) 96]
-    where (fits? "Submit" (mk-font "Inter" 14) 96))
+  {safe-text}
+  -> (proven-text "Submit" (mk-font "Inter" 14) 96))
 ```
 
-If the text were "Submit your very long application for review", it would fail to compile with an exact measurement error.
+If the text were "Submit your very long application for review", the `assert-fits` would fail to load with an exact measurement error. `(proven-text ...)` is further gated at read time: its first argument **must** be a literal string. Passing a variable or any other expression is a compile-time error, not a runtime one — the fallback to `handled-text` or `prop-spec` is spelled out in the error message.
 
-### For dynamic text, you have three choices
+### For dynamic text, you have two choices
 
-The compiler forces you to pick one — silence is not an option:
+Dynamic content (props, API responses, user input) never reaches `proven-text`. The compiler forces you to pick between:
 
 ```shen
-;; Option 1: Prove worst-case fits (bounded string from API) — planned, (bounded N) type exists
-S : (bounded 20);  ;; API guarantees ≤20 chars
-...
+;; Option 1: Declare a bound at the component boundary (Tier 2)
+;; The Astro runtime enforces (max-chars N) and (max-width Font W) against
+;; props BEFORE render runs, so a malformed prop fails with a message
+;; pointing at the offending key — not at a downstream layout overflow.
+(prop-spec "title" (max-chars 80))
+(prop-spec "title" (max-width (mk-font "Inter" 14) 200))
 
-;; Option 2: Explicitly handle overflow
+;; Option 2: Explicit visual fail-soft with handled-text (Tier 3)
+;; CSS truncation: text-overflow:ellipsis for ellipsis, overflow:hidden
+;; for clip, nothing for visible. The build does not fail on overflow;
+;; the rendered text does.
 (define dynamic-label
-  {string --> safe-text}
-  Text -> [handled-text Text (mk-font "Inter" 14) 200 ellipsis])
-
-;; Option 3: Runtime branch (just an if-statement, no proof machinery)
-(define user-content
-  {string --> safe-text}
-  Text -> (if (fits? Text (mk-font "Inter" 14) 200)
-              [proven-text Text (mk-font "Inter" 14) 200]
-              [handled-text Text (mk-font "Inter" 14) 200 ellipsis]))
+  Text -> [text-node (handled-text Text (mk-font "Inter" 14) 200 ellipsis)])
 ```
 
-You cannot put unproven text into a fixed container. The compiler won't let you forget. `handled-text` with `ellipsis` emits real `text-overflow:ellipsis;white-space:nowrap;overflow:hidden` CSS at render time; `clip` emits `overflow:hidden`; `visible` emits nothing.
+The two tiers compose: `prop-spec` is the editorial safety net (80 chars = "this is a title, not an essay"), `handled-text` is the visual contract for what passes through. Try to feed a dynamic value into `proven-text`, and you get a load-time error before any HTML is emitted.
 
 ### Figma specs as executable contracts
 

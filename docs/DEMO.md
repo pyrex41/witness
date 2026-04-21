@@ -30,11 +30,13 @@ Three things happen in this code:
 
 1. **`assert-fits`** calls run at file load time. They measure the text with Pretext and error immediately if it overflows. This is the compile-time gate.
 
-2. **`proven-text`** is a type that requires a `where (fits? ...)` guard. The type checker won't let you construct a `proven-text` value without proving the text fits. You literally cannot put unproven text into a container.
+2. **`proven-text`** is a function whose first argument **must be a literal string**. A read-time macro (`trust.shen`) rejects any call that passes a variable, a `(js.get Props …)`, or any other expression — the build fails with a message naming the offending source site. Combined with `assert-fits`, the literal is verified against its container before a single byte of HTML is emitted.
 
-3. **`handled-text`** is the escape hatch for dynamic content. You explicitly choose an overflow strategy (ellipsis, clip, visible). The compiler accepts this because you've acknowledged the overflow risk.
+3. **`prop-spec`** is the bridge between the static world and dynamic props: `(prop-spec "title" (max-chars 80))` or `(max-width Font W)` is enforced at the component boundary before render runs, so an oversized prop fails with a message pointing at the key.
 
-The result: every text node in your layout is either **proven to fit** or **explicitly handled**. Nothing slips through.
+4. **`handled-text`** is the escape hatch for anything still dynamic. You explicitly choose an overflow strategy (ellipsis, clip, visible). The compiler accepts this because you've acknowledged that CSS truncation — not the build — is the final line of defense.
+
+The result: every text node in your layout is either **proven to fit** (literal), **bounded at the boundary** (prop-spec), or **explicitly handled** (CSS). Nothing slips through.
 
 ## The Demo
 
