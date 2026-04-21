@@ -1,12 +1,32 @@
 // boot.js — ShenScript + Textura + Pretext bridge
 // Polyfill OffscreenCanvas for Node.js (Pretext needs it for text measurement)
-const { createCanvas } = require('canvas');
+const { createCanvas, registerFont } = require('canvas');
 if (typeof globalThis.OffscreenCanvas === 'undefined') {
   globalThis.OffscreenCanvas = class OffscreenCanvas {
     constructor(w, h) { this._canvas = createCanvas(w, h); }
     getContext(type) { return this._canvas.getContext(type); }
   };
 }
+
+// Pin a known font for measurement parity. Without this, node-canvas measures
+// text with whatever the host OS maps "monospace" to (Menlo on macOS, DejaVu
+// on Linux, Consolas on Windows) — each with different glyph widths — while
+// the browser may render something else entirely. Registering a specific
+// font binary here and requiring callers to reference it by name makes the
+// server and the browser measure the same shapes. The browser must load the
+// same file via @font-face; the exported PINNED_FONT_FAMILY / PINNED_FONT_FILE
+// helpers below let consumers do that without hardcoding paths.
+const PINNED_FONT_FAMILY = 'JetBrains Mono';
+const PINNED_FONT_FILE = require.resolve(
+  '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff'
+);
+let fontRegistered = false;
+function ensurePinnedFont() {
+  if (fontRegistered) return;
+  registerFont(PINNED_FONT_FILE, { family: PINNED_FONT_FAMILY });
+  fontRegistered = true;
+}
+ensurePinnedFont();
 
 const fs = require('fs');
 const path = require('path');
@@ -67,6 +87,10 @@ async function boot(options = {}) {
     // Generic CSS font families are always "available"
     const generics = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'];
     const family = fontSpec.replace(/^[\d.]+px\s*/, '').trim();
+    // Families we registered with node-canvas are guaranteed available even
+    // when fontconfig doesn't know them (e.g. the fontsource woff we loaded
+    // programmatically — fc-list only sees files under known font dirs).
+    if (family === PINNED_FONT_FAMILY) return true;
     if (generics.includes(family.toLowerCase())) return true;
     if (fontCache.has(family)) return fontCache.get(family);
 
@@ -135,7 +159,41 @@ async function boot(options = {}) {
       for (let i = 0; i < n; i++) propagateMetadata(input.children[i], output.children[i]);
     }
   }
+  // Pre-pin text widths to raw (unbuffered) Pretext measurements.
+  //
+  // Textura's MeasureFunc adds a 15% width buffer to every unsized text cell
+  // to hide server/browser font divergence (see textura/dist/engine.js around
+  // `bufferedWidth`). With a pinned font registered via canvas.registerFont
+  // that divergence is gone — but the buffer remains, and it leaks into the
+  // page as ~15% extra trailing whitespace on every cell (the "reuben .brooks"
+  // gap we hit when three abutting proven cells rendered with 11px slack each).
+  //
+  // Patching the installed textura module is fragile; instead we sidestep the
+  // buffer path. Textura's MeasureFunc has an unbuffered early-return when
+  //   widthMode === Exactly && shouldWrap
+  // (the wrap path: `return { width, height: layout(...).height }`). Any text
+  // node with an explicit `width` and `whiteSpace: 'pre-wrap'` will hit that
+  // branch. So: pre-measure with raw Pretext, set width to ceil(intrinsic),
+  // flip whiteSpace. Since `maxWidth === intrinsic`, no wrap actually occurs;
+  // the text lays out on one line as before, just without the 15% padding.
+  function pinTextWidths(node) {
+    if (!node) return;
+    if (typeof node.text === 'string' && node.width == null) {
+      try {
+        const prepared = prepareWithSegments(node.text, node.font);
+        const result = layoutWithLines(prepared, 1e7, node.lineHeight || 20);
+        const intrinsic = result.lines[0]?.width ?? 0;
+        // Round up so sub-pixel measurement noise can't cause a spurious wrap.
+        node.width = Math.ceil(intrinsic);
+        node.whiteSpace = 'pre-wrap';
+      } catch (_) { /* measurement errored — let Textura handle it. */ }
+    }
+    if (Array.isArray(node.children)) {
+      for (const c of node.children) pinTextWidths(c);
+    }
+  }
   await $.define('textura.layout', (tree) => {
+    pinTextWidths(tree);
     const out = computeLayout(tree);
     propagateMetadata(tree, out);
     return out;
@@ -171,7 +229,11 @@ async function boot(options = {}) {
   });
 
   // textura-text builds the Yoga input.
-  //   - `width` is what Yoga uses to measure/wrap (pass 999999 for no wrap).
+  //   - `width` is what Yoga uses for flex placement. Passing 0 means "unset"
+  //     so Yoga measures intrinsically via Pretext — the correct default for
+  //     any text we want rendered at its natural width. Pass a positive value
+  //     only when the cell is truncating (ellipsis/clip) and needs a fixed
+  //     cap independent of intrinsic measurement.
   //   - `clipWidth` is the displayed width at render time (e.g. for ellipsis).
   //     0 means no clipping; the renderer uses Yoga's computed width.
   //   - `overflow` is the CSS overflow strategy tag.
@@ -183,16 +245,19 @@ async function boot(options = {}) {
     const lh = lineHeight && lineHeight > 0
       ? lineHeight
       : (fontSize ? Math.ceil(fontSize * 1.4) : 20);
-    return {
+    const node = {
       text: String(text),
       font: f,
       fontSize,
       fontFamily: m ? m[2].trim() : f,
       lineHeight: lh,
-      width,
       clipWidth,
       overflow: String(overflow),
     };
+    // Only set width when caller explicitly wants a fixed cell. Otherwise
+    // omit the key so Yoga's MeasureFunc runs Pretext on the string.
+    if (width > 0) node.width = width;
+    return node;
   });
 
   await $.define('textura-box', (w, h) => ({ width: w, height: h }));
@@ -244,4 +309,4 @@ async function boot(options = {}) {
   return $;
 }
 
-module.exports = { boot };
+module.exports = { boot, PINNED_FONT_FAMILY, PINNED_FONT_FILE };

@@ -4,6 +4,7 @@
     "": {
       "name": "witness",
       "dependencies": {
+        "@fontsource/jetbrains-mono": "^5.2.8",
         "astring": "^1.4.3",
         "awaitify-stream": "^1.0.2",
         "canvas": "^3.2.2",
@@ -13,6 +14,8 @@
   },
   "packages": {
     "@chenglou/pretext": ["@chenglou/pretext@0.0.3", "", {}, "sha512-RQmqMqUAPRCyv4R3LlRi/ao6KbNWYclqLA+V1HS7sWgyUUbjn3JmmlfXZSY/BjM4rbmIaMSyIVisYocYGYftiQ=="],
+
+    "@fontsource/jetbrains-mono": ["@fontsource/jetbrains-mono@5.2.8", "", {}, "sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ=="],
 
     "astring": ["astring@1.9.0", "", { "bin": { "astring": "bin/astring" } }, "sha512-LElXdjswlqjWrPpJFg1Fx4wpkOCxj1TDHlSV4PlaRxHGWko024xICaa97ZkMfs6DRKlCguiAI+rbXv5GWwXIkg=="],
 

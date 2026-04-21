@@ -17,9 +17,11 @@
   "scripts": {
     "test": "node test/smoke.js && node test/cli.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
     "smoke": "node test/smoke.js",
-    "test:cli": "node test/cli.test.js"
+    "test:cli": "node test/cli.test.js",
+    "test:geometry": "node test/geometry.test.js"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "astring": "^1.4.3",
     "awaitify-stream": "^1.0.2",
     "canvas": "^3.2.2",
