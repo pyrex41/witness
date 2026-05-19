@@ -11,7 +11,7 @@ The goal is self-hosting backpressure: as we evolve Witness (especially while bu
 - **Gates** (run via `npm run gates` or `bin/witness-design-gates.sh`) enforce fidelity:
   1. `tc+` on the design specs (Gate 1 — catches broken claims in the spec).
   2. Execution of property proofs / cross-checks against the implementation.
-  3. (Future) Emitter fidelity, regeneration/TCB audit, derive-style equivalence for the UI spec layer.
+  3. Emitter fidelity + regeneration/TCB audit (Gates 3 & 4 — the codegen bridge itself is protected).
 - Regeneration + host "build" (in this case the proof run + CI) provides the enforcement, exactly like `shengen` + compiler in the sb pattern.
 - The LLM / human proposes changes; the gates + proof system say "no" if fidelity is lost.
 
@@ -105,7 +105,7 @@ A key step toward eliminating dual maintenance: `card-properties.shen` now expor
 
 This is the first concrete instance of the self-hosting codegen bridge: the same backpressure that makes "layout overflow a type error" for users now makes "emitter drift a gate failure" for the generator.
 
-Future work: strengthen the walker to traverse the full `verified-card` datatype, add Yoga-tree measurement of emitted output against Figma, expand to stories/tests, etc. (See "To strengthen backpressure further" below.)
+Current state: Gate 4 is live and strong (auto-discovery, per-emitter `fidelityChecks[]`, real `tsc --noEmit`). Next steps: deeper emitter walker over live `verified-card` values, Yoga + Figma verification inside Gate 4, more output targets, and CI hardening. (See "To strengthen backpressure further" below.)
 
 ### Adding More Backpressure
 

@@ -258,9 +258,15 @@ Witness now has its own **sb-shen-backpressure-style gate system** to protect it
 >
 > Runs Gate 4 (high-level `verified-card` emitter fidelity) + the rich `witness loop --gate 4 --dry-run` experience with a success banner. The fastest way to feel the self-hosting backpressure on the Card contracts.
 
-A concrete step toward eliminating dual maintenance: the emitter now calls `(card-contract-shape)` from the live contracts at runtime (see `specs/ui/properties/card-properties.shen`). The high-level emitter path consumes the real Shen shape instead of a hand-maintained JS mirror. Gate 4 enforces faithful output.
+The system has moved from "rough but promising" to a solid, intentional self-hosting backpressure platform:
 
-Formal design specs live in `specs/design/*.shen` (witness-core contracts, load-order + trust macro guarantees, renderer obligations, etc.). These use the same sequent-calculus + `: verified` premises as user layout proofs.
+- High-level contracts (`verified-card`, slots, `card-design-fidelity` theorem) are real and actively proven by Gate 1/2.
+- The emitter is now driven by the live contracts via `(card-contract-shape)` (major step on duplication).
+- Gate 4 is strong: auto-discovers emitters, runs declared `fidelityChecks[]`, and does real `tsc --noEmit`.
+- Adding a new protected component is mechanical (copy the Card pattern + drop files).
+- `witness loop` gives a rich, gate-aware protected development environment.
+
+Formal design specs live in `specs/design/*.shen`. These use the same sequent-calculus + `: verified` premises as user layout proofs.
 
 Run the gates with:
 
