@@ -7,7 +7,24 @@
 # Phase 2: SBCL Shen type-checks with cached measurements (fast)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SHEN_BIN="${SHEN_BIN:-shen-sbcl}"
+
+# Prefer shen-cl (faster kernel from https://github.com/pyrex41/shen-cl)
+# Fall back to official shen-sbcl if shen-cl is not installed.
+if command -v shen-cl &> /dev/null; then
+  SHEN_BIN="${SHEN_BIN:-shen-cl}"
+elif command -v shen-sbcl &> /dev/null; then
+  SHEN_BIN="${SHEN_BIN:-shen-sbcl}"
+else
+  echo "ERROR: Neither 'shen-cl' nor 'shen-sbcl' found in PATH."
+  echo ""
+  echo "Recommended (faster):"
+  echo "  git clone https://github.com/pyrex41/shen-cl"
+  echo "  cd shen-cl && make && make install"
+  echo ""
+  echo "Fallback (official):"
+  echo "  brew install shen-sbcl"
+  exit 1
+fi
 
 if [ $# -eq 0 ]; then
   echo "Usage: witness-check.sh <file.shen> [file2.shen ...]"
@@ -15,12 +32,6 @@ if [ $# -eq 0 ]; then
   echo "Two-phase proof checking:"
   echo "  Phase 1: Measure text with Pretext (Node.js)"
   echo "  Phase 2: Type-check with SBCL Shen (fast)"
-  exit 1
-fi
-
-# Check shen-sbcl is available
-if ! command -v "$SHEN_BIN" &> /dev/null; then
-  echo "ERROR: $SHEN_BIN not found. Install via: brew install shen-sbcl"
   exit 1
 fi
 

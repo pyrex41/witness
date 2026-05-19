@@ -256,15 +256,15 @@ Witness now has its own **sb-shen-backpressure-style gate system** to protect it
 > bash docs/card-protected-demo.sh
 > ```
 >
-> Runs Gate 4 (high-level `verified-card` emitter fidelity) + the rich `witness loop --gate 4 --dry-run` experience with a success banner. The fastest way to feel the self-hosting backpressure on the Card contracts.
+> Runs Gate 4 (high-level `verified-card` emitter fidelity via the live `(card-contract-shape)` descriptor + `fidelityChecks[]` + `tsc --noEmit`) + the rich `witness loop --gate 4 --dry-run` experience. The fastest 60-second way to feel the modern tighter-coupling backpressure on the Card contracts.
 
 The system has moved from "rough but promising" to a solid, intentional self-hosting backpressure platform:
 
-- High-level contracts (`verified-card`, slots, `card-design-fidelity` theorem) are real and actively proven by Gate 1/2.
-- The emitter is now driven by the live contracts via `(card-contract-shape)` (major step on duplication).
-- Gate 4 is strong: auto-discovers emitters, runs declared `fidelityChecks[]`, and does real `tsc --noEmit`.
-- Adding a new protected component is mechanical (copy the Card pattern + drop files).
-- `witness loop` gives a rich, gate-aware protected development environment.
+- High-level contracts (`verified-card`, slots, `card-design-fidelity` theorem) are real and actively proven by Gate 1/2 via `witness-core.shen`.
+- The emitter is now driven by the live `(card-contract-shape)` descriptor from Shen (major reduction in duplication; emitter = thin deterministic projector).
+- Gate 4 is strong: auto-discovers `*-emitter.js`, runs declared `fidelityChecks[]` (co-located), real `tsc --noEmit`, and the full high-level walk.
+- Adding a new protected component is turnkey: `witness spec-init MyComponent` (tiny generic loader wires the properties; scaffolder emits correct skeleton + fidelityChecks emitter; Gate 4 auto-discovers everything). ~80% boilerplate, gates green immediately.
+- `witness loop` gives a rich, gate-aware protected development environment for the whole surface.
 
 Formal design specs live in `specs/design/*.shen`. These use the same sequent-calculus + `: verified` premises as user layout proofs.
 
@@ -278,7 +278,7 @@ npm run gates
 
 **Current gates** (numbered, individually addressable, with TCB/regeneration audit):
 
-1. `tc+` on all design specs (using the real `fits?` / Pretext / `shen-sbcl` engine)
+1. `tc+` on all design specs (using the real `fits?` / Pretext / `shen-cl` or `shen-sbcl` engine)
 2. Property proofs / design theorems
 3. Regeneration audit (SHA-256 fidelity check on the Trusted Computing Base — `witness.shen`, `trust.shen`, `layout.shen`, renderers, checker, etc.)
 
@@ -287,7 +287,7 @@ This is the meta layer that will ensure the Card spike, `shen-witness` codegen e
 See:
 - `specs/design/README.md`
 - `bin/witness-design-gates.sh --help`
-- `.claude/commands/witness/` (for future `/witness:gates`, `/witness:loop`, `/witness:spec-init` slash commands)
+- `.claude/commands/witness/` (for `/witness:gates`, `/witness:loop`, `/witness:spec-init` etc. — `witness spec-init` is already live via the main CLI)
 - The full design document for the Shen UI Specifications vision
 
 As we build the larger system, the same proof machinery that protects *your* components will protect the implementation of the protector.

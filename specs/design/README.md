@@ -7,7 +7,7 @@ The goal is self-hosting backpressure: as we evolve Witness (especially while bu
 ## Philosophy (directly modeled on sb-shen-backpressure)
 
 - Specs in `specs/design/*.shen` are the single source of truth for key invariants.
-- The existing Witness proof system (`fits?`, `measure` via Pretext, `layout-proofs`, `trust` macro, two-phase check with shen-sbcl `tc+`, Figma structural diff, etc.) acts as the oracle.
+- The existing Witness proof system (`fits?`, `measure` via Pretext, `layout-proofs`, `trust` macro, two-phase check with `shen-cl` (preferred) or `shen-sbcl` + `tc+`, Figma structural diff, etc.) acts as the oracle.
 - **Gates** (run via `npm run gates` or `bin/witness-design-gates.sh`) enforce fidelity:
   1. `tc+` on the design specs (Gate 1 — catches broken claims in the spec).
   2. Execution of property proofs / cross-checks against the implementation.
@@ -55,7 +55,7 @@ npm run gates
 > bash docs/card-protected-demo.sh
 > ```
 >
-> This tiny runnable tour exercises Gate 4 (emitter fidelity on the high-level `verified-card` contracts) and the `witness loop --gate 4 --dry-run` banner + safety in one minute. Perfect for demos, onboarding, or a quick "feel the backpressure" check.
+> This tiny runnable tour exercises Gate 4 (high-level `*-contract-shape`-driven emitter fidelity, `fidelityChecks[]`, `tsc --noEmit`) and the rich `witness loop --gate 4 --dry-run` banner + safety in one minute. Perfect for demos, onboarding, or a quick "feel the new tighter coupling + backpressure" check.
 >
 > Full recipes, violation UX, theorem walkthroughs, and the "relax the title width" end-to-end flow live in the companion cookbook:
 > - [`docs/design-gates-examples.md`](docs/design-gates-examples.md)
@@ -66,7 +66,7 @@ npm run gates
 
 The gate runner re-uses the project's excellent two-phase checker (`bin/witness-check.sh`):
 - Phase 1: Node + Pretext measures all text in the design specs.
-- Phase 2: shen-sbcl with `tc+` verifies all `: verified` premises.
+- Phase 2: `shen-cl` (preferred) or `shen-sbcl` with `tc+` verifies all `: verified` premises.
 
 Any violation becomes a hard failure (type error or overflow) before you can ship the change.
 
@@ -74,8 +74,8 @@ Any violation becomes a hard failure (type error or overflow) before you can shi
 
 - **Gate 1: tc+ Design Specs** — Runs `witness-check.sh` on every `*.shen` in `specs/design/`. Catches broken datatypes, unprovable `:verified` premises, or invariants that no longer hold in the live implementation. (Now includes the Card spike contracts via `witness-core.shen` loading `specs/ui/properties/card-properties.shen`.)
 - **Gate 2: Property Proofs** — The theorems (`tier-1-always-requires-literal`, `witness-core-design-fidelity`, `renderer-contract`, `card-design-fidelity`, etc.) are proven by the successful `tc+` of their defining file. The type checker *is* the proof engine.
-- **Gate 3: Regeneration / TCB Audit** — SHA-256 of the core TCB (`shen/witness.shen`, `trust.shen`, `layout.shen`, `proofs.shen`, `witness-sbcl.shen`, renderers `ssr.shen`/`dom.shen`, `bin/witness-check.sh`, `cli/measure.js`) vs the committed manifest embedded in the runner. Fails on any drift. Directly analogous to sb-shen-backpressure's Gate 5 `tcb-audit`.
-- **Gate 4: Emitter Fidelity** — Auto-discovers `codegen/emitters/*-emitter.js`, runs each emitter on its spec/contracts (high-level verified-* walk), enforces the checks declared in the emitter's `fidelityChecks[]` export (brands, factories, tokens, semantic CSS, richer targets, etc.), and (new) runs `tsc --noEmit` (shim + temp tsconfig) on every emitted `*.tsx`. The Card emitter (`card-emitter.js`) is the seed; adding components is now mechanical via the convention (no edits to the gate runner). Protects the codegen bridge itself, stronger than before.
+- **Gate 3: Regeneration / TCB Audit** — SHA-256 of the core TCB (`shen/witness.shen`, `trust.shen`, `layout.shen`, `proofs.shen`, `witness-sbcl.shen` (loader for `shen-cl` or `shen-sbcl`), renderers `ssr.shen`/`dom.shen`, `bin/witness-check.sh`, `cli/measure.js`) vs the committed manifest embedded in the runner. Fails on any drift. Directly analogous to sb-shen-backpressure's Gate 5 `tcb-audit`.
+- **Gate 4: Emitter Fidelity** — Auto-discovers `codegen/emitters/*-emitter.js`, runs each emitter on its spec/contracts (high-level verified-* walk), enforces the checks declared in the emitter's `fidelityChecks[]` export (brands, factories, tokens, semantic CSS, richer targets, etc.), and (new) runs `tsc --noEmit` (shim + temp tsconfig) on every emitted `*.tsx`. The Card emitter (`card-emitter.js`) is the seed; adding components is now turnkey (`witness spec-init`) + the tiny generic loader + the convention (no edits to any gate runner). The new tools + Gate 4 auto-discovery make the whole experience one-command for 80 % of the work. Protects the codegen bridge itself, stronger than before.
 
 **CLI options** (portable, works on macOS bash 3.2 + Linux):
 - `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`audit`, `tcb`, `regen`), `--gate 4` (`emit`, `emitter`, `codegen`)
@@ -126,25 +126,59 @@ This creates a beautiful recursive system: the tool that gives users "layout ove
 
 ## Extending the system
 
-To add support for a new UI component (e.g. `Button` or `Modal`) under the same design backpressure + official codegen surface:
+**Next-3 goal achieved**: Adding a protected component is now genuinely turnkey.
 
-1. **Component spec**: Create `specs/ui/<name>-spec.shen` (and/or `specs/ui/properties/<name>-properties.shen`). Define the `verified-<name>` datatype (slots, variants, tokens), the `mk-*` factories, and a `<name>-design-fidelity` theorem that constructs an instance and discharges all `:verified` premises (layout overflow, figma match, responsive, renderer contract, etc.). Load the properties file from `specs/design/witness-core.shen` so it participates in Gate 1 (`tc+`) and Gate 2 (property proofs).
+The modern pattern uses the tighter `*-contract-shape` coupling (Shen single source of truth) + two tiny new tools:
 
-2. **Wire the gates**: The existing Gate 1/2 runner (via witness-core load + witness-check.sh) will automatically cover the new spec. **No change needed to `bin/witness-design-gates.sh`** — Gate 4 now auto-discovers every `codegen/emitters/*-emitter.js` (non-stub), runs its `emit()`, and enforces every check declared in the emitter's `fidelityChecks` export. (See "fidelity convention" below.)
+- **Tiny generic component loader** (`bin/witness-component-loader.js`): auto-discovers every `specs/ui/properties/*-properties.shen` and keeps the load list inside `specs/design/witness-core.shen` in a managed block. Gate 1/2 therefore cover new components with **zero manual wiring**.
+- **One-command scaffolder** (`witness spec-init <Name>` / `bin/witness-spec-init.js`): given a component name, emits a correct skeleton `*-properties.shen` (datatypes + verified-lift + design-fidelity theorem) + a basic but *self-consistent* `*-emitter.js` (exports `emit()` + `fidelityChecks[]` that Gate 4 will auto-discover and that pass on the emitted artifacts). It then calls the loader so everything is wired.
 
-3. **Emitter (the mechanical step)**: Add `codegen/emitters/<name>-emitter.js` (copy Card pattern). It must:
-   - Re-use `boot.js`, load the spec, prefer high-level `*-contract-shape` from live Shen (or fallback).
-   - Export `emit({ writeToDisk, highLevel, ... })` returning Promise<Record<filename, content>>.
-   - Export `fidelityChecks: Array<{ test: (files) => boolean, label: string }>` — these are the obligations now co-located with the emitter (no more scattering regexes in the gate runner). Gate 4 will find and run them automatically.
-   - (Optional but recommended for strengthening) Emit `*.tsx` files; Gate 4 will `tsc --noEmit` them (with isolated React shim + tsconfig) as the minimum new check.
+" `witness spec-init Button` " gives you ~80 % of the boilerplate and leaves the gates in a runnable state.
 
-4. **Official surface + CI**: `witness codegen --emit` (Card path via cli/check.js) and `npm run gates` pick it up with zero further wiring. For multi-component `witness codegen` a thin registry/dispatcher can be added later. Update this README + any demo scripts. The `fidelityChecks` you wrote *are* the check.
+### One-command turnkey flow (the recommended path)
+```bash
+witness spec-init MyComponent     # or "witness-spec-init MyComponent"
+# (creates properties + emitter, auto-updates witness-core loads via the tiny loader)
 
-5. **Tests/docs**: Add examples in `docs/`, ensure `witness render` compat, run `npm run gates` (Gate 4 will now also compile-check your .tsx).
+witness gates --quick             # Gate 1/2: tc+ proves your new *-design-fidelity theorem
+witness gates --gate 4            # Gate 4: auto-discovers emitter + fidelityChecks + tsc on .tsx
+witness gates --emit --gate 4     # also materialises generated/ artifacts
+```
 
-5. **Tests/docs**: Add examples in `docs/`, ensure `witness render` still works for compat, run the gates locally before PR.
+Then iterate:
+- Flesh out the real verified-* datatypes, obligations, and the construction theorem in the properties file.
+- Evolve the emitter to drive from the live `(<name>-contract-shape)` (copy the high-level walk pattern from `card-emitter.js`).
+- (Optional) Add a thin `specs/ui/<name>-spec.shen` for 100% `witness render` compat.
 
-The Card implementation (`specs/ui/card-spec.shen`, `card-emitter.js` (incl. its `fidelityChecks` export), Gate 4 auto-discovery + tsc, `witness codegen`) is the reference. Start by copying its pattern (including the fidelityChecks array); the convention + discovery makes the "add component" process mechanical while the sb-style backpressure + strengthened checks (markers now in emitter + tsc on emitted TS) guarantee you cannot drift the new spec from the contracts.
+All subsequent `witness gates`, `witness loop --gate 4`, and `npm run gates` pick up the new component with **no further changes** to any runner or manifest.
+
+### Why the coupling + tooling (high-level overview)
+- The authoritative contract (verified datatypes, slots with `fits?` premises, variants, tokens, obligations, `instanceShape` for canonical construction) lives in Shen as a narrow, machine-readable descriptor exported by `(<name>-contract-shape)`.
+- The emitter calls it at runtime, parses once, and drives high-level `makeCanonical*` + walking from the live data. No complete hand-written JS mirror.
+- `fidelityChecks[]` live next to the emitter. Gate 4 auto-discovers every non-stub `*-emitter.js`, runs `emit()`, executes every check, and `tsc`s any `.tsx`.
+- The two new tools (loader + scaffolder) removed the last hand steps (writing two files + editing a load list).
+
+### Step-by-step (Card + the new tools as living reference)
+1. **One command (the new 80 % starting point)**: Run `witness spec-init MyComponent`. This creates:
+   - `specs/ui/properties/my-component-properties.shen` (skeleton with variants, verified-* datatype, obligation lift, and a `* -design-fidelity` theorem ready for tc+).
+   - `codegen/emitters/my-component-emitter.js` (basic `emit()` + `fidelityChecks[]` that are self-consistent — Gate 4 will be green immediately).
+   It then calls the tiny generic loader, so `witness-core.shen` is updated with the new load line. No hand-written files, no manifest edits.
+
+2. **Shen contracts (single source of truth — the interesting work)**: Open the generated properties file. Replace the skeleton datatypes with your real slots (each carrying `(fits? ...):verified` or other obligations), the `verified-<name>` product, factories, and a rich `<name>-design-fidelity` theorem that constructs a canonical instance and discharges every premise. Export `(<name>-contract-shape)`. The loader already wired it; Gate 1/2 now prove it on every run.
+
+3. **Thin low-level compat (optional, for full runtime parity)**: If you need `witness render` / existing tests to keep working exactly, add `specs/ui/<name>-spec.shen` with the legacy `render-view` path (high-level lives alongside).
+
+4. **Emitter evolution (the remaining 20 %)**: The generated stub is deliberately minimal but already protected. Evolve it (following `card-emitter.js`):
+   - Boot + load, call the live `(<name>-contract-shape)`.
+   - Implement the high-level `makeCanonicalVerified*` + walk helpers driven purely by the shape.
+   - Emit the full branded `*.tsx` + semantic CSS + stories + fixture.
+   - Extend `fidelityChecks[]` with your new obligations. (Gate 4 needs zero changes.)
+
+5. **Zero-wiring surface + verify**: Everything is already discovered. Run `witness gates --quick`, `--gate 4`, `--emit --gate 4`. The `witness loop`, `npm run gates`, and `witness codegen` all see it. Gate 4 will run your `fidelityChecks` and `tsc` your emitted TS. Polish docs / examples and you are done.
+
+The Card spike (`specs/ui/card-spec.shen` + `card-properties.shen` with its `card-contract-shape`, the full high-level `card-emitter.js` + its `fidelityChecks`, the generated tree, and the loader/scaffolder tooling) is the complete reference implementation. The combination of contract-shape + tiny loader + scaffolder + auto-discovering Gate 4 makes adding a protected component a fast, low-risk, fully backpressured operation. You cannot drift from the proven contracts.
+
+This is exactly the reduced-duplication, tighter-coupling reality the design now delivers.
 
 ## Relationship to the Big Vision
 
