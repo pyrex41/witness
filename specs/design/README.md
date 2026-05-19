@@ -75,7 +75,7 @@ Any violation becomes a hard failure (type error or overflow) before you can shi
 - **Gate 1: tc+ Design Specs** — Runs `witness-check.sh` on every `*.shen` in `specs/design/`. Catches broken datatypes, unprovable `:verified` premises, or invariants that no longer hold in the live implementation. (Now includes the Card spike contracts via `witness-core.shen` loading `specs/ui/properties/card-properties.shen`.)
 - **Gate 2: Property Proofs** — The theorems (`tier-1-always-requires-literal`, `witness-core-design-fidelity`, `renderer-contract`, `card-design-fidelity`, etc.) are proven by the successful `tc+` of their defining file. The type checker *is* the proof engine.
 - **Gate 3: Regeneration / TCB Audit** — SHA-256 of the core TCB (`shen/witness.shen`, `trust.shen`, `layout.shen`, `proofs.shen`, `witness-sbcl.shen`, renderers `ssr.shen`/`dom.shen`, `bin/witness-check.sh`, `cli/measure.js`) vs the committed manifest embedded in the runner. Fails on any drift. Directly analogous to sb-shen-backpressure's Gate 5 `tcb-audit`.
-- **Gate 4: Emitter Fidelity** — Runs the real `shen-witness` emitter (`codegen/emitters/card-emitter.js`) on the Card spec (`specs/ui/card-spec.shen`). Asserts that emitted `Card.tsx` + `card.css` contain the expected brands, factories, token vars, semantic classes, owl/container-query patterns. Protects the codegen bridge itself.
+- **Gate 4: Emitter Fidelity** — Auto-discovers `codegen/emitters/*-emitter.js`, runs each emitter on its spec/contracts (high-level verified-* walk), enforces the checks declared in the emitter's `fidelityChecks[]` export (brands, factories, tokens, semantic CSS, richer targets, etc.), and (new) runs `tsc --noEmit` (shim + temp tsconfig) on every emitted `*.tsx`. The Card emitter (`card-emitter.js`) is the seed; adding components is now mechanical via the convention (no edits to the gate runner). Protects the codegen bridge itself, stronger than before.
 
 **CLI options** (portable, works on macOS bash 3.2 + Linux):
 - `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`audit`, `tcb`, `regen`), `--gate 4` (`emit`, `emitter`, `codegen`)
@@ -130,21 +130,27 @@ To add support for a new UI component (e.g. `Button` or `Modal`) under the same 
 
 1. **Component spec**: Create `specs/ui/<name>-spec.shen` (and/or `specs/ui/properties/<name>-properties.shen`). Define the `verified-<name>` datatype (slots, variants, tokens), the `mk-*` factories, and a `<name>-design-fidelity` theorem that constructs an instance and discharges all `:verified` premises (layout overflow, figma match, responsive, renderer contract, etc.). Load the properties file from `specs/design/witness-core.shen` so it participates in Gate 1 (`tc+`) and Gate 2 (property proofs).
 
-2. **Wire the gates**: The existing Gate 1/2 runner (via witness-core load + witness-check.sh) will automatically cover the new spec. Optionally extend `bin/witness-design-gates.sh` (run_gate_4 or a new gate) with fidelity assertions for the new component.
+2. **Wire the gates**: The existing Gate 1/2 runner (via witness-core load + witness-check.sh) will automatically cover the new spec. **No change needed to `bin/witness-design-gates.sh`** — Gate 4 now auto-discovers every `codegen/emitters/*-emitter.js` (non-stub), runs its `emit()`, and enforces every check declared in the emitter's `fidelityChecks` export. (See "fidelity convention" below.)
 
-3. **Emitter**: Add (or generalize) an emitter under `codegen/emitters/<name>-emitter.js` that re-uses `boot.js`, loads the spec (under tc- for runtime), asks the live contracts for the shape via the component's `*-contract-shape` descriptor (or falls back to render-view), and emits the branded `<Name>.tsx` (Symbol brands + create* guarded factories) + semantic `<name>.css`. This is the current mechanism for tight Shen↔JS coupling with no hand-maintained shape duplication. Export an `emit({writeToDisk})` function for Gate use + direct calls.
+3. **Emitter (the mechanical step)**: Add `codegen/emitters/<name>-emitter.js` (copy Card pattern). It must:
+   - Re-use `boot.js`, load the spec, prefer high-level `*-contract-shape` from live Shen (or fallback).
+   - Export `emit({ writeToDisk, highLevel, ... })` returning Promise<Record<filename, content>>.
+   - Export `fidelityChecks: Array<{ test: (files) => boolean, label: string }>` — these are the obligations now co-located with the emitter (no more scattering regexes in the gate runner). Gate 4 will find and run them automatically.
+   - (Optional but recommended for strengthening) Emit `*.tsx` files; Gate 4 will `tsc --noEmit` them (with isolated React shim + tsconfig) as the minimum new check.
 
-4. **Official surface + CI**: `witness codegen --emit` (via the thin delegation in cli/check.js) and `npm run design-gates:full` / the GitHub workflow will pick it up once wired in Gate 4. Update HELP text and this README. Add a fidelity check similar to the Card markers.
+4. **Official surface + CI**: `witness codegen --emit` (Card path via cli/check.js) and `npm run gates` pick it up with zero further wiring. For multi-component `witness codegen` a thin registry/dispatcher can be added later. Update this README + any demo scripts. The `fidelityChecks` you wrote *are* the check.
+
+5. **Tests/docs**: Add examples in `docs/`, ensure `witness render` compat, run `npm run gates` (Gate 4 will now also compile-check your .tsx).
 
 5. **Tests/docs**: Add examples in `docs/`, ensure `witness render` still works for compat, run the gates locally before PR.
 
-The Card implementation (`specs/ui/card-spec.shen`, `card-emitter.js`, Gate 4, `witness codegen`) is the reference. Start by copying its pattern; the sb-style backpressure guarantees you cannot drift the new spec from the emitter or core contracts.
+The Card implementation (`specs/ui/card-spec.shen`, `card-emitter.js` (incl. its `fidelityChecks` export), Gate 4 auto-discovery + tsc, `witness codegen`) is the reference. Start by copying its pattern (including the fidelityChecks array); the convention + discovery makes the "add component" process mechanical while the sb-style backpressure + strengthened checks (markers now in emitter + tsc on emitted TS) guarantee you cannot drift the new spec from the contracts.
 
 ## Relationship to the Big Vision
 
 The design document at `/tmp/grok-design-doc-56d5ddf2.md` (the "Shen UI Specifications for Witness") describes the user-facing feature (formal component contracts + codegen for guarded React/Astro components + semantic CSS).
 
-The Card spike in `specs/ui/card-spec.shen` is the concrete bootstrap of that vision (PR 1–2 in the plan). It is already under the design gates via the load in `witness-core.shen`. The emitter stub in `codegen/emitters/card-emitter-stub.js` documents the path to the generated branded components + semantic CSS.
+The Card spike in `specs/ui/card-spec.shen` is the concrete bootstrap of that vision. It is already under the design gates via the load in `witness-core.shen`. The real emitter (`codegen/emitters/card-emitter.js`) + Gate 4 produce the guarded branded components + semantic CSS from the live contracts. The historical sketch lives in `card-emitter-stub.js` for provenance only.
 
 This `specs/design/` system is the **meta** layer that will protect the faithful implementation of that feature. When we land PRs 4–6 (the `shen-witness` codegen and semantic CSS emitter), we will add design specs that prove "the emitted component produces a Yoga tree that satisfies the `verified-card` contract within Figma tolerance."
 

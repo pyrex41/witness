@@ -1,0 +1,83 @@
+name: Design Gates
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly Monday UTC full run
+  workflow_dispatch:
+
+jobs:
+  fast-gates:
+    name: Design Gates (fast / inner-loop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system deps (for canvas native + build tools)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
+      - name: Install shen-sbcl (for Gate 1/2 tc+ via witness-check.sh)
+        run: |
+          sudo apt-get install -y sbcl git
+          git clone --depth 1 https://github.com/Shen-Language/shen-sbcl.git /tmp/shen-sbcl
+          cd /tmp/shen-sbcl
+          ./fetch.sh
+          ./build.sh
+          sudo install -m 755 shen /usr/local/bin/shen
+          sudo ln -sf /usr/local/bin/shen /usr/local/bin/shen-sbcl || true
+          echo "SHEN_BIN=shen-sbcl" >> $GITHUB_ENV
+          shen --version || true
+
+      - name: npm install
+        run: npm install
+
+      - name: Run fast design gates (Gates 1+2 only)
+        run: npm run design-gates -- --quick
+
+  full-gates:
+    name: Design Gates (full)
+    runs-on: ubuntu-latest
+    # Optionally run full suite on schedule, manual trigger, or when a push/PR commit mentions specs/ / design / codegen changes.
+    # For guaranteed full on specs changes, use workflow_dispatch or include "specs" in commit message.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name != 'pull_request' && (contains(github.event.head_commit.message, 'specs/') || contains(github.event.head_commit.message, 'design-gates') || contains(github.event.head_commit.message, 'codegen')))
+    needs: fast-gates
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system deps (for canvas native + build tools)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
+      - name: Install shen-sbcl (for Gate 1/2 tc+ via witness-check.sh)
+        run: |
+          sudo apt-get install -y sbcl git
+          git clone --depth 1 https://github.com/Shen-Language/shen-sbcl.git /tmp/shen-sbcl
+          cd /tmp/shen-sbcl
+          ./fetch.sh
+          ./build.sh
+          sudo install -m 755 shen /usr/local/bin/shen
+          sudo ln -sf /usr/local/bin/shen /usr/local/bin/shen-sbcl || true
+          echo "SHEN_BIN=shen-sbcl" >> $GITHUB_ENV
+          shen --version || true
+
+      - name: npm install
+        run: npm install
+
+      - name: Run full design gates (Gates 1-4 incl. TCB audit + emitter fidelity)
+        run: npm run design-gates:full

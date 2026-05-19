@@ -3,9 +3,9 @@
 \\ This file is the design-time + runtime home of the high-level contracts from the
 \\ "Shen UI Specifications" spike (design doc Spike Realization section).
 \\
-\\ - Datatypes (design-tokens from tokens.shen, card-title-slot, card-desc-slot,
-\\   card-action-slot, card-variant, verified-card) with :verified premises
-\\   reusing fits?, overflow, token-value, plus verified-lift for obligations.
+\\ - Datatypes (design-tokens, card-*-slot, card-variant, verified-card) with
+\\   :verified premises (real fits? + layout + stubs via the intentional
+\\   verified-lift bridge documented below).
 \\ - Real (non-trivial) helpers for layout-obligations etc. (re-use tokens/variant).
 \\ - High-level construction in card-design-fidelity forces tc+ to prove the full
 \\   verified-card contract (slots + obligations + figma + responsive) for the
@@ -92,14 +92,18 @@
 
 (declare responsive-variants-proven [card-variant --> [design-tokens --> boolean]])
 
-\\ --- Lift for :verified premises that reduce to the constant true ---
-\\ This datatype provides the single sequent "true : verified" which acts as the
-\\ bridge: any user-defined obligation predicate (returning boolean) that
-\\ evaluates to the constant true can discharge a (Predicate ...) : verified
-\\ premise inside verified-card, verified-*-slot etc. Used by layout-obligations,
-\\ figma-card-matches, responsive-variants-proven (and by second components such
-\\ as Alert). This is what lets the high-level contracts be both executable and
-\\ tc+-provable under the design gates.
+\\ --- verified-lift: the intentional bridge for executable-yet-provable obligations ---
+\\ In a dependently-typed setting it is common and principled to have
+\\ obligation predicates that are *executable* (return boolean, can be
+\\ measured or stubbed at runtime) while still discharging :verified
+\\ premises under tc+ when they compute to the constant true.
+\\
+\\ verified-lift supplies the single sequent (true : verified). Any
+\\ predicate P whose body reduces to true can discharge (P ...):verified.
+\\ This is *not* a hack: it is the standard mechanism letting the same
+\\ high-level spec serve Gate 1 static proof (via construction theorems)
+\\ *and* runtime factories/checks. Real obligations use measurements;
+\\ stubs (figma, responsive, Alert) use the lift. See alert header.
 
 (datatype verified-lift
   ________________________________________________

@@ -1,0 +1,56 @@
+{
+  "_meta": {
+    "generatedBy": "shen-witness/card-emitter",
+    "source": "specs/ui/properties/card-properties.shen (card-design-fidelity theorem)",
+    "note": "Golden data for test snapshots, property tests, or golden-file checks. Matches the verified-card constructed under tc+."
+  },
+  "verifiedCard": {
+    "title": {
+      "ctor": "mk-card-title",
+      "text": "Card Title",
+      "font": "18px/1.2 sans-serif",
+      "maxW": 268,
+      "tokens": "default-tokens"
+    },
+    "desc": {
+      "ctor": "mk-card-desc",
+      "text": "Short desc for construction.",
+      "font": "14px/1 sans-serif",
+      "maxW": 268,
+      "strategy": "ellipsis",
+      "tokens": "default-tokens"
+    },
+    "actions": [
+      {
+        "ctor": "mk-card-action",
+        "label": "View Details",
+        "font": "14px/1 sans-serif",
+        "maxW": 120,
+        "tokens": "default-tokens"
+      },
+      {
+        "ctor": "mk-card-action",
+        "label": "Save",
+        "font": "14px/1 sans-serif",
+        "maxW": 120,
+        "tokens": "default-tokens"
+      }
+    ],
+    "variant": "mobile",
+    "tokens": "default-tokens"
+  },
+  "layout": {
+    "width": 300,
+    "gap": 16,
+    "padding": 16,
+    "direction": "column"
+  },
+  "tokens": {
+    "space-4": 16,
+    "space-2": 8,
+    "radius-lg": 8,
+    "text-title": 18,
+    "text-action": 14
+  },
+  "obligationsDischarged": true
+}

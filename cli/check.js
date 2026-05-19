@@ -20,7 +20,36 @@ Commands:
     --width <px>        Viewport width (default: 800)
     --height <px>       Viewport height (default: 600)
   measure <files...>    Pre-compute text measurements for SBCL proof checking
-  help                  Show this help`;
+  gates                 Run sb-style design fidelity gates (Gates 1-4: tc+, proofs, TCB audit, emitter fidelity for Card)
+                          Supports --quick, --gate N, --emit (for Gate 4 regeneration)
+  design-gates          Alias for gates
+  codegen                 Thin official 'witness codegen' surface (Card emitter starting point)
+                          Supports --emit (write), --help. Delegates to codegen/emitters/card-emitter.js
+  agent <files...>      Self-correcting layout agent (auto-widen on overflow proofs)
+    --max-iter N
+    --dry-run
+    --respect-design-gates   Make design gates first-class: run chosen gates each iter;
+                             gate failures surface as high-prio DESIGN SPEC VIOLATION
+                             with full output + remediation (edit spec OR impl)
+    --gate <quick|full|N>    Gate mode when respecting (quick default; full for TCB+emitter;
+                             4 for emitter-only work on Card spike)
+  loop <files...>       Gate-protected Ralph-style autonomous loop (first-class protected dev env)
+                        Delegates to bin/witness-loop.sh for banner + flexible gate selection.
+                        Runs design gates (configurable: --gate quick|full|4|audit...) *before each*
+                        agent iteration. Violations are rich, actionable backpressure blocks.
+                        Use for Card spike, emitter, specs/design evolution under proof.
+    --max-iter N
+    --dry-run
+    --gate <spec>
+  help                  Show this help
+
+Use 'witness gates' (or npm run gates) regularly while evolving the project
+(especially the Shen UI Specs / Card spike layer).
+Use 'witness loop' (or the witness-loop binary) for gate-protected
+agent work on specs/ or core implementation. The loop + gates turn the
+terminal into a live verified environment for the self-hosting UI spec system.
+
+`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -77,6 +106,78 @@ async function main() {
     const { execSync } = require('child_process');
     const measureFiles = args.slice(1);
     execSync(`node ${__dirname}/measure.js ${measureFiles.join(' ')}`, { stdio: 'inherit' });
+    return;
+  }
+
+  // gates / design-gates — sb-style backpressure for Witness itself
+  if (command === 'gates' || command === 'design-gates') {
+    const { execSync } = require('child_process');
+    const gateScript = path.join(__dirname, '..', 'bin', 'witness-design-gates.sh');
+    // Forward remaining args (e.g. --quick, --gate 4, --emit)
+    const gateArgs = args.slice(1).join(' ');
+    try {
+      execSync(`bash ${gateScript} ${gateArgs}`.trim(), { stdio: 'inherit' });
+    } catch (e) {
+      process.exitCode = e.status || 1;
+    }
+    return;
+  }
+
+  // codegen — thin official `witness codegen` surface for Card (and future emitters)
+  // Delegates to the real card-emitter (Gate 4 implementation) so `witness codegen --emit` works
+  // without users invoking node directly on the internal emitter path.
+  if (command === 'codegen') {
+    if (args.includes('--help') || args.includes('-h')) {
+      console.log(`Usage: witness codegen [options]
+
+Thin official entry point for the shen-witness codegen layer (Card spike is the initial target).
+
+Options:
+  --emit, --write     Write the emitted Card.tsx + card.css to codegen/emitters/generated/card/
+  --lowlevel          Force legacy low-level (render-view) extraction instead of high-level verified-card walk
+  (default: preview the sources to stdout)
+
+See specs/ui/card-spec.shen, codegen/emitters/card-emitter.js, Gate 4 (emitter fidelity),
+and specs/design/README.md (Extending the system).
+`);
+      return;
+    }
+    const { execSync } = require('child_process');
+    const emitterPath = path.join(__dirname, '..', 'codegen', 'emitters', 'card-emitter.js');
+    const codegenArgs = args.slice(1).join(' ');
+    try {
+      execSync(`node ${emitterPath} ${codegenArgs}`.trim(), { stdio: 'inherit' });
+    } catch (e) {
+      process.exitCode = e.status || 1;
+    }
+    return;
+  }
+
+  // agent — delegate (now supports --respect-design-gates for gate-aware runs)
+  if (command === 'agent') {
+    const { execSync } = require('child_process');
+    const agentArgs = args.slice(1).join(' ');
+    try {
+      execSync(`node ${__dirname}/agent.js ${agentArgs}`, { stdio: 'inherit' });
+    } catch (e) {
+      process.exitCode = e.status || 1;
+    }
+    return;
+  }
+
+  // loop — launches the gate-aware Ralph-style loop (forces design gate respect)
+  // Delegates to dedicated bin/witness-loop.sh which provides the rich banner,
+  // supports --gate quick|full|N etc., and ensures --respect-design-gates + chosen gate
+  // are passed down. This is the first-class entry point for the protected dev environment.
+  // Exactly the integration point for /witness:loop and sb-style autonomous backpressure.
+  if (command === 'loop') {
+    const { execSync } = require('child_process');
+    const loopArgs = args.slice(1).join(' ');
+    try {
+      execSync(`bash ${__dirname}/../bin/witness-loop.sh ${loopArgs}`, { stdio: 'inherit' });
+    } catch (e) {
+      process.exitCode = e.status || 1;
+    }
     return;
   }
 

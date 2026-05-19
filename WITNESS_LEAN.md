@@ -40,6 +40,24 @@ Everything above the line exists and works. We write the glue.
 | Structured error reports (`format-error`) | ✅ works | Surfaced by both `dev`/`check` and `agent` |
 | Performance budget proofs (`--perf`) | 🚧 not implemented | Flag removed from CLI |
 
+## Design Backpressure & Self-Hosting (May 2026 update)
+
+Witness now eats its own dogfood. The same Shen sequent-calculus + Yoga/Pretext proof engine that protects user layouts now protects the evolution of Witness itself via a set of formal **design specs** in `specs/design/*.shen`.
+
+- `load-order-trust.shen` encodes the exact TCB bootstrap order (proofs → ... → trust last → `(tc +)`) and three property theorems whose acceptance under `tc+` is the proof (citing `witness.shen:7-26` and `trust.shen:25` line-by-line).
+- `witness-core.shen` captures the 14-field `frame-props` contract, `to-textura` lowering fidelity for proven/handled cells, per-branch responsive obligations, and renderer overflow respect. It loads only the SBCL-pure modules so the specs themselves pass the gates' `tc+`.
+
+The gates runner (`bin/witness-design-gates.sh`, surfaced as `witness gates`, `npm run gates`, and `/witness:gates`) runs:
+1. Gate 1: `tc+` on all design specs (re-uses `bin/witness-check.sh` two-phase measure + shen-sbcl).
+2. Gate 2: property proofs (the `(define ... {sig})` theorems are proven by successful type-checking).
+3. Gate 3: regeneration/TCB audit (SHA-256 of core TCB files vs committed manifest; `--update-manifest` for intentional changes).
+
+This is the direct transplant of the Polymarket sb-shen-backpressure pattern (four/five gates + regeneration + shengen-style emission) into the Witness tree. The Card spike (`specs/ui/card-spec.shen` + high-level `verified-card` contracts in `specs/ui/properties/card-properties.shen` + real `shen-witness` emitter in `codegen/emitters/card-emitter.js`) is the first user-facing artifact under this meta-protection. Gate 4 (emitter fidelity) is live: it runs the emitter on the Card spec and enforces that the emitted `Card.tsx` + semantic CSS faithfully reflect the contracts (brands, factories, token vars, semantic classes, owl/container patterns).
+
+The result: no drift is possible when implementing "Shen specs to control UI". The proof system is recursive.
+
+See `specs/design/README.md`, `bin/witness-design-gates.sh`, and the main design doc for the full contracts. Gate 4 is the first working instance of the codegen bridge under the same backpressure.
+
 ## Core idea in 30 seconds
 
 Textura computes layout as pure math — no DOM, no reflow. Shen's

@@ -12,13 +12,18 @@
   "bin": {
     "witness": "./cli/check.js",
     "witness-verify": "./cli/verify.js",
-    "witness-agent": "./cli/agent.js"
+    "witness-agent": "./cli/agent.js",
+    "witness-loop": "./bin/witness-loop.sh"
   },
   "scripts": {
     "test": "node test/smoke.js && node test/cli.test.js && node test/layout.test.js && node test/proofs.test.js && node test/trust.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
     "smoke": "node test/smoke.js",
     "test:cli": "node test/cli.test.js",
-    "test:geometry": "node test/geometry.test.js"
+    "test:geometry": "node test/geometry.test.js",
+    "design-gates": "bash bin/witness-design-gates.sh",
+    "design-gates:full": "bash bin/witness-design-gates.sh --full",
+    "gates": "bash bin/witness-design-gates.sh",
+    "loop": "bash bin/witness-loop.sh"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

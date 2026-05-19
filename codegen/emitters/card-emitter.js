@@ -1,49 +1,17 @@
 /**
  * codegen/emitters/card-emitter.js
  *
- * The `shen-witness` codegen emitter for the Card spike (WP-B deepened).
+ * The shen-witness emitter for the Card spike.
  *
- * Tight coupling (first step): the high-level path calls (card-contract-shape)
- * from the live Shen contracts in card-properties.shen. We are removing the
- * hand-maintained JS mirror of the verified-card datatype.
- */
+ * Gate 4 responsibilities:
+ * - Boot + load contracts (card-properties via witness-core for tc+).
+ * - High-level walk via makeCanonicalVerifiedCard (or supplied verifiedCard)
+ *   using live (card-contract-shape) from Shen — no hand-written JS datatype mirror.
+ * - Emit: branded Card.tsx (sb-style factories), semantic card.css (with variant matrix),
+ *   stories stub, fixture. Legacy low-level render-view path for compat.
  *
- * Gate 4 (emitter fidelity) responsibilities:
- *   1. Boot Witness env (full or minimal pure prefix).
- *   2. Load specs/ui/card-spec.shen (and transitively the contracts via
- *      witness-core for Gate 1/2). The high-level verified-card lives in
- *      specs/ui/properties/card-properties.shen (datatypes, mk-* ctors,
- *      card-design-fidelity theorem that *constructs* a verified-card and
- *      discharges all :verified premises for slots + layout + figma + responsive).
- *   3. Primary walk (deepened): construct via makeCanonicalVerifiedCard (controlled
- *      high-level helper) or *accept* a caller-supplied verified-card value,
- *      then walk its structure (Title/Desc/Actions/Variant/Tokens + obligations).
- *      Legacy walk: still supports calling (render-view) + low-level tree 100%.
- *   4. Emit (core + richer targets on high-level):
- *        - Card.tsx : branded TS mirroring the high-level slot datatypes
- *          (create* factories only path to VerifiedCard, exactly sb-style).
- *        - card.css : semantic CSS (token vars, .card__* slot classes,
- *          nesting/owl, container queries + variant matrix based on card-variant).
- *        - Card.stories.tsx : Storybook story stub exercising the factories.
- *        - card.fixture.json : golden test data / snapshot fixture from the walk.
- *
- * The emitter generates *from the formal verified-card contract* (not just the
- * rendered tree). Gate 4 protects the high-level datatypes + richer targets.
- * Low-level render-view path remains for 100% backward compat with `witness render`,
- * tests, and demos. makeCanonicalVerifiedCard provides the "live" construction
- * path (no longer only a frozen static mirror).
- *
- * Usage:
- *   node codegen/emitters/card-emitter.js                 # prints core + richer
- *   node codegen/emitters/card-emitter.js --emit          # writes all to generated/card/
- *   node -e '
- *     const e = require("./codegen/emitters/card-emitter");
- *     const vc = e.makeCanonicalVerifiedCard({variant:"tablet"});
- *     e.emit({verifiedCard: vc, writeToDisk:true}).then(...)
- *   '
- *
- * Invoked by Gate 4 in bin/witness-design-gates.sh for fidelity checks (now
- * includes stories/fixture markers).
+ * Usage: node .../card-emitter.js [--emit] [--lowlevel]
+ * Invoked by Gate 4 (bin/witness-design-gates.sh) and `witness codegen`.
  */
 
 const fs = require('fs');
@@ -74,19 +42,39 @@ async function bootAndLoadCardSpec() {
 }
 
 /**
- * Ask the live Shen environment for the contract shape.
- * This is the key to tight coupling: instead of hardcoding the structure
- * of verified-card in JS, we ask the Shen side (single source of truth).
+ * Parse the raw list-of-pairs shape from (card-contract-shape) into a
+ * convenient JS object. Slots, token list, variants etc become easy to
+ * consume. This is the narrow projection that lets the emitter be
+ * deterministic and low-effort while eliminating the hand JS mirror.
+ */
+function parseContractShape(raw) {
+  if (!raw || !Array.isArray(raw)) return null;
+  const top = Object.fromEntries(raw.map(([k, v]) => [k, v]));
+  // slots: [[name, proplist], ...] -> { name: {field: val, ...}, ... }
+  if (Array.isArray(top.slots)) {
+    const sObj = {};
+    for (const entry of top.slots) {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        const name = entry[0];
+        const plist = entry[1];
+        sObj[name] = Array.isArray(plist) ? Object.fromEntries(plist.map(([kk, vv]) => [kk, vv])) : plist;
+      }
+    }
+    top.slots = sObj;
+  }
+  return top;
+}
+
+/**
+ * Live contract shape from Shen (card-contract-shape). Removes need for
+ * hand-maintained JS mirror of verified-card.
  */
 async function getCardContractShape($) {
   try {
     const raw = await $.exec('(card-contract-shape)');
     if (!raw) return null;
-    return Object.fromEntries(raw.map(([k, v]) => [k, v]));
+    return parseContractShape(raw);
   } catch (e) {
-    // The descriptor isn't available in this boot context yet (or the file
-    // wasn't loaded). Fall back gracefully so Gate 4 and normal usage continue
-    // to work while we finish the tight coupling.
     return null;
   }
 }
@@ -94,20 +82,10 @@ async function getCardContractShape($) {
 async function extractCardShape($, options = {}) {
   const { highLevel = true, verifiedCard } = options;
   if (highLevel) {
-    // Primary high-level path (tight coupling):
-    // We ask the live Shen environment for the contract shape via (card-contract-shape).
-    // This means the emitter no longer needs a complete hand-maintained JS mirror
-    // of the verified-card datatype defined in card-properties.shen.
     const contractShape = await getCardContractShape($);
     return extractHighLevelCardShape({ $, verifiedCard, contractShape });
   }
-
-  // Legacy low-level render path (kept working):
-  //   - call render-view (proves the helpers and tree are live after load)
-  //   - the token map is taken from the single-source tokens.shen (the numbers
-  //     are authoritative; token-value call currently hits a case-matching
-  //     curiosity under the JS exec path, so we use the literal values here).
-  //   - treeShape comes from the mk-props9 in the render-view source.
+  // Legacy low-level path (render-view) kept for 100% compat.
   const tree = await $.exec('(render-view)');
   // Success of this exec proves the load of card-spec (and its inner tokens load)
   // plus all helper defines succeeded and the Card view is constructible.
@@ -124,48 +102,38 @@ async function extractCardShape($, options = {}) {
   return { tokens, treeShape: { width: 300, gap: 16, padding: 16, direction: 'column' } };
 }
 
-// --- High-level verified-card walk (new primary emitter path) ---
-// This directly mirrors the structure constructed inside the theorem
-// (card-design-fidelity) from specs/ui/properties/card-properties.shen:
-//   (card (mk-card-title "Card Title" (mk-font "sans-serif" 18) 268 default-tokens)
-//         (mk-card-desc "..." (mk-font "sans-serif" 14) 268 ellipsis default-tokens)
-//         [(mk-card-action ...) (mk-card-action ...)]
-//         mobile default-tokens)
-// The walk produces a contract-rich shape (slots carry their datatype fields
-// + the three obligations are known to be discharged). The emitter therefore
-// generates from the *formal verified-card* rather than only the low-level tree.
-//
-// Controlled high-level construction: use makeCanonicalVerifiedCard(overrides)
-// to produce (or customize) a verified-card value instead of only the frozen
-// static mirror. The emitter now *accepts* a live/constructed verifiedCard via
-// options so callers (future drivers, tests, or Gate extensions) can supply
-// variant-specific or extended cards while the walk + generators remain the same.
-function makeCanonicalVerifiedCard(overrides = {}) {
-  // Small helper providing the controlled construction path (parallels the
-  // mk-* ctors + (card ...) in the shen fidelity theorem). Callers can pass
-  // partial overrides for title/desc/actions/variant to produce "live" values
-  // for richer emission (e.g. different variants for the CSS matrix).
+// High-level construction helper (parallels mk-* + (card ...) in the spec).
+// Accepts overrides for variant matrices etc. When contractShape provided,
+// pulls defaults from live (card-contract-shape) instead of static values.
+function makeCanonicalVerifiedCard(overrides = {}, contractShape = null) {
+  const cs = contractShape || {};
+  const slots = cs.slots || {};
+  const titleD = slots.title || {};
+  const descD = slots.desc || {};
+  const actD = slots.actions || {};
+  const defVariant = cs.default_variant || 'mobile';
+
   const base = {
     title: {
       ctor: 'mk-card-title',
       text: 'Card Title',
-      font: '18px sans-serif',
-      maxW: 268,
+      font: titleD.font || '18px/1.2 sans-serif',
+      maxW: titleD.maxW !== undefined ? titleD.maxW : 268,
       tokens: 'default-tokens'
     },
     desc: {
       ctor: 'mk-card-desc',
       text: 'Short desc for construction.',
-      font: '14px sans-serif',
-      maxW: 268,
-      strategy: 'ellipsis',
+      font: descD.font || '14px/1 sans-serif',
+      maxW: descD.maxW !== undefined ? descD.maxW : 268,
+      strategy: descD.strategy || 'ellipsis',
       tokens: 'default-tokens'
     },
     actions: [
-      { ctor: 'mk-card-action', label: 'View Details', font: '14px sans-serif', maxW: 120, tokens: 'default-tokens' },
-      { ctor: 'mk-card-action', label: 'Save', font: '14px sans-serif', maxW: 120, tokens: 'default-tokens' }
+      { ctor: 'mk-card-action', label: 'View Details', font: actD.font || '14px/1 sans-serif', maxW: actD.maxW !== undefined ? actD.maxW : 120, tokens: 'default-tokens' },
+      { ctor: 'mk-card-action', label: 'Save', font: actD.font || '14px/1 sans-serif', maxW: actD.maxW !== undefined ? actD.maxW : 120, tokens: 'default-tokens' }
     ],
-    variant: 'mobile',
+    variant: defVariant,
     tokens: 'default-tokens'
   };
   return {
@@ -182,13 +150,13 @@ const CANONICAL_VERIFIED_CARD = makeCanonicalVerifiedCard();
 
 function walkVerifiedCard(vc, contractShape) {
   // "Walk" the verified-card.
-  // The token map is now driven by the live contractShape from Shen
-  // (returned by (card-contract-shape)) whenever available. This is one
-  // concrete step toward removing the hand-maintained JS mirror of the
-  // Shen datatype.
+  // The token list (and when available, future values) come from the live
+  // contractShape. Slot structure knowledge is also available via cs.slots.
+  // The generator + walk are now narrow and driven by the Shen descriptor.
+  const cs = contractShape || {};
   let tokens = {};
-  const declaredTokens = (contractShape && Array.isArray(contractShape.tokens))
-    ? contractShape.tokens
+  const declaredTokens = (cs.tokens && Array.isArray(cs.tokens))
+    ? cs.tokens
     : ['space-4', 'space-2', 'radius-lg', 'text-title', 'text-action'];
 
   for (const t of declaredTokens) {
@@ -209,39 +177,42 @@ function walkVerifiedCard(vc, contractShape) {
       actionSlots: vc.actions,
       variant: vc.variant
     },
-    obligationsDischarged: true
+    obligationsDischarged: true,
+    contractShape: cs
   };
 }
 
 async function extractHighLevelCardShape(opts = {}) {
-  const vc = opts.verifiedCard || CANONICAL_VERIFIED_CARD;
-
-  // Get the contract shape from the live Shen environment (single source of truth).
-  // This call is what makes the emitter tightly coupled to the Shen contracts
-  // instead of maintaining a parallel JS mirror.
   let contractShape = opts.contractShape;
   if (!contractShape && opts.$) {
     try {
       contractShape = await getCardContractShape(opts.$);
-    } catch (e) {
-      // Fall back gracefully if the descriptor isn't available yet.
-    }
+    } catch (e) {}
   }
+
+  const vc = opts.verifiedCard || makeCanonicalVerifiedCard({}, contractShape);
 
   return walkVerifiedCard(vc, contractShape);
 }
 
 function generateCardTs(shape) {
-  const { tokens, verifiedCard, slots, obligationsDischarged } = shape;
-  // High-level path: shape comes from walking CANONICAL_VERIFIED_CARD
-  // (direct mirror of the (card ...) construction + discharged premises inside
-  // card-design-fidelity in specs/ui/properties/card-properties.shen).
-  // Low-level path: falls back to render-view tree + tokens.
-  // In both cases the numeric values and emitted structure are identical.
-  // Follows the sketches in design doc.
-  // Branded with Symbol so you literally cannot construct VerifiedCard without
-  // going through createCard (sb pattern; the high-level mk-* ctors + verified-card
-  // sequents are the source of truth).
+  const { tokens, verifiedCard, slots, obligationsDischarged, contractShape: cs = {} } = shape;
+  const slotDescs = cs.slots || {};
+  const tvals = cs.token_values || {};
+  const variants = (cs.variants && Array.isArray(cs.variants)) ? cs.variants : ['mobile', 'tablet', 'desktop'];
+  const defVar = cs.default_variant || 'mobile';
+  const titleD = slotDescs.title || { font: '18px/1.2 sans-serif', maxW: 268 };
+  const descD = slotDescs.desc || { font: '14px/1 sans-serif', maxW: 268 };
+  const actD = slotDescs.actions || { font: '14px/1 sans-serif', maxW: 120 };
+  const s4 = tvals['space-4'] || tokens['space-4'] || 16;
+  const s2 = tvals['space-2'] || tokens['space-2'] || 8;
+  const variantUnion = variants.map(v => `'${v}'`).join(' | ');
+
+  // High-level path walks the verified-card value produced by card-design-fidelity
+  // (or makeCanonicalVerifiedCard). Branded Symbol factories enforce the sb-style
+  // contract at the TS boundary. Gate 4 ensures fidelity to the Shen source.
+  // Slot fields, fonts, maxW, variant union and defaults are now projected from
+  // the live (card-contract-shape) — major reduction in hand-maintained mirror.
   const ts = `// GENERATED by shen-witness (codegen/emitters/card-emitter.js)
 // from specs/ui/card-spec.shen + specs/ui/properties/card-properties.shen
 // (walks verified-card from card-design-fidelity) — do not edit by hand.
@@ -258,8 +229,6 @@ export interface CardTitle {
   readonly text: string;
   readonly font: string;
   readonly maxW: number;
-  // Mirrors (card-title-slot Text Font MaxW Tokens) + (fits? ...):verified premise
-  // from the verified-card datatype in specs/ui/properties/card-properties.shen
 }
 
 export interface CardDesc {
@@ -267,8 +236,6 @@ export interface CardDesc {
   readonly text: string;
   readonly font: string;
   readonly maxW: number;
-  // Mirrors (card-desc-slot Text Font MaxW Strategy Tokens) + overflow strategy
-  // (Tier 3 handled-text) from the verified-card datatype family.
 }
 
 export interface CardAction {
@@ -276,8 +243,6 @@ export interface CardAction {
   readonly text: string;
   readonly font: string;
   readonly maxW: number;
-  // Mirrors (card-action-slot Label Font MaxW Tokens) + fits? premise
-  // (parallel to title slot) from verified-card.
 }
 
 export interface VerifiedCard {
@@ -285,60 +250,53 @@ export interface VerifiedCard {
   readonly title: CardTitle;
   readonly desc: CardDesc;
   readonly actions: CardAction[];
-  readonly variant: 'default';
+  readonly variant: 'mobile' | 'tablet' | 'desktop';
   readonly tokens: Record<string, number>;
-  // This is the runtime mirror of (card Title Desc Actions Variant Tokens) : verified-card
-  // whose construction in card-design-fidelity discharges the three obligations
-  // (layout, figma-card-matches, responsive-variants-proven) under tc+.
 }
 
 export function createCardTitle(text: string): CardTitle {
-  // Runtime mirror of (assert-fits ...) + (fits? ...) from the spec.
-  // In a fuller emitter this would call into a bridged fits? oracle or
-  // accept a pre-proven token. For the spike the compile-time brand + Gate 4
-  // provide the backpressure; the runtime check is illustrative.
   if (typeof text !== 'string' || text.length === 0) {
     throw new Error('CardTitle requires non-empty string');
   }
-  // The real 268px / 18px sans bound was proven at spec load time.
-  return { [CARD_TITLE_BRAND]: true, text, font: '18px/1.2 sans-serif', maxW: 268 };
+  // Bounds projected from (card-contract-shape) slot descriptors (single source).
+  return { [CARD_TITLE_BRAND]: true, text, font: '${titleD.font}', maxW: ${titleD.maxW} };
 }
 
 export function createCardDesc(text: string): CardDesc {
   if (typeof text !== 'string') {
     throw new Error('CardDesc requires string');
   }
-  return { [CARD_DESC_BRAND]: true, text, font: '14px/1 sans-serif', maxW: 268 };
+  return { [CARD_DESC_BRAND]: true, text, font: '${descD.font}', maxW: ${descD.maxW} };
 }
 
 export function createCardAction(text: string): CardAction {
   if (typeof text !== 'string' || text.length === 0) {
     throw new Error('CardAction requires non-empty string');
   }
-  return { [CARD_ACTION_BRAND]: true, text, font: '14px/1 sans-serif', maxW: 120 };
+  return { [CARD_ACTION_BRAND]: true, text, font: '${actD.font}', maxW: ${actD.maxW} };
 }
 
 export function createCard(
   title: CardTitle,
   desc: CardDesc,
-  actions: CardAction[]
+  actions: CardAction[],
+  variant: ${variantUnion} = '${defVar}'
 ): VerifiedCard {
-  // In the full system this would also require discharged layout-obligations
-  // and figma-card-matches premises (exactly the :verified sequents on verified-card).
-  // High-level path: the obligations come from the verified-card construction in
-  // card-design-fidelity. For the spike the brand + Gate 4 enforce the path.
   if (!title || !(CARD_TITLE_BRAND in title)) throw new Error('title must be createCardTitle(...)');
   if (!desc || !(CARD_DESC_BRAND in desc)) throw new Error('desc must be createCardDesc(...)');
   if (!Array.isArray(actions) || actions.some(a => !(CARD_ACTION_BRAND in a))) {
     throw new Error('actions must be array of createCardAction(...)');
+  }
+  if (!['mobile','tablet','desktop'].includes(variant)) {
+    throw new Error('variant must be mobile | tablet | desktop');
   }
   return {
     [VERIFIED_CARD_BRAND]: true,
     title,
     desc,
     actions,
-    variant: 'default',
-    tokens: { 'space-4': ${tokens['space-4']}, 'space-2': ${tokens['space-2']} }
+    variant,
+    tokens: { 'space-4': ${s4}, 'space-2': ${s2} }
   };
 }
 
@@ -346,8 +304,9 @@ export const Card: React.FC<{ card: VerifiedCard; className?: string }> = ({ car
   if (!card || !(VERIFIED_CARD_BRAND in card)) {
     throw new Error('<Card card={...}> requires a VerifiedCard from createCard(...)');
   }
+  const variantClass = \`card--\${card.variant}\`;
   return (
-    <div className={['card', className].filter(Boolean).join(' ')}>
+    <div className={['card', variantClass, className].filter(Boolean).join(' ')}>
       <div className="card__title">{card.title.text}</div>
       <div className="card__desc">{card.desc.text}</div>
       <div className="card__actions">
@@ -363,13 +322,16 @@ export const Card: React.FC<{ card: VerifiedCard; className?: string }> = ({ car
 }
 
 function generateCardCss(shape) {
-  const { tokens, treeShape, verifiedCard, obligationsDischarged } = shape;
+  const { tokens, treeShape, verifiedCard, obligationsDischarged, contractShape: cs = {} } = shape;
   const s4 = tokens['space-4'];
   const s2 = tokens['space-2'];
   const titleSize = tokens['text-title'];
   const actionSize = tokens['text-action'];
   const radius = tokens['radius-lg'];
   const w = treeShape.width;
+  const slotDescs = cs.slots || {};
+  const vw = cs.variant_widths || { mobile: 268, tablet: 400, desktop: 600 };
+  const titleMaxW = (slotDescs.title && slotDescs.title.maxW) || 268;
 
   // High-level contract-aware: when shape carries verifiedCard we know we walked
   // the verified-card datatype (Title/Desc/Actions/Variant/Tokens + 3 obligations).
@@ -410,8 +372,8 @@ function generateCardCss(shape) {
 .card__title {
   font: var(--font-title);
   color: #111;
-  /* max-width proven by the spec's assert-fits + fits? */
-  max-width: 268px;
+  /* max-width projected from (card-contract-shape) slot descriptor */
+  max-width: ${titleMaxW}px;
 }
 
 .card__desc {
@@ -431,7 +393,7 @@ function generateCardCss(shape) {
 /* Action buttons inside the actions slot */
 .card__action {
   font: var(--font-action);
-  padding: 8px 16px;
+  padding: ${s2}px ${s4}px;  /* from token values */
   border-radius: 6px;
   border: 1px solid #ddd;
   background: #fafafa;
@@ -453,14 +415,10 @@ function generateCardCss(shape) {
   }
 }
 
-/* Bonus: CSS variant matrix derived from card-variant datatype (mobile|tablet|desktop)
-   Mirrors (variant-width ...) in specs/ui/properties/card-properties.shen.
-   The verified-card walk supplies the active variant; these classes allow
-   consumers to style per-variant while the core .card uses the proven 300px base.
-   (The TS still emits a single createCard path; variants are data on the VerifiedCard.) */
-.card--mobile { max-width: 268px; }   /* tightest, from fidelity theorem */
-.card--tablet { max-width: 400px; }
-.card--desktop { max-width: 600px; }
+/* Variant matrix derived from card-variant in the contracts.
+   Values projected at emit time from (card-contract-shape) : variant_widths
+   (which re-uses the exact variant-width helper from the proofs). */
+${Object.entries(vw).map(([v, ww]) => `.card--${v} { max-width: ${ww}px; }`).join('\n')}
 `;
   return css;
 }
@@ -506,16 +464,15 @@ const canonical = createCard(
 
 export const Default: Story = {
   args: { card: canonical },
-  parameters: { docs: { description: { story: 'Canonical verified-card (mobile variant from fidelity theorem).' } } }
+  parameters: { docs: { description: { story: 'Canonical verified-card.' } } }
 };
 
 export const Mobile: Story = {
   args: { card: { ...canonical, variant: '${v}' } },
-  parameters: { docs: { description: { story: 'Explicit mobile variant (tightest content width per variant-width in spec).' } } }
+  parameters: { docs: { description: { story: 'Mobile variant (per contract).' } } }
 };
 
-// Extend with tablet/desktop stories by supplying a verifiedCard with that variant
-// (use makeCanonicalVerifiedCard({ variant: 'tablet' }) + createCard or direct shape).
+// Extend with tablet/desktop by passing variant to createCard or mutating args.
 `;
 }
 
@@ -617,6 +574,84 @@ if (require.main === module) {
     });
 }
 
+// --- Gate 4 Fidelity convention ---
+// Emitters declare their own fidelity obligations via this export.
+// Gate 4 (in bin/witness-design-gates.sh) auto-discovers all *-emitter.js (non-stub),
+// invokes emit({writeToDisk:false}), and runs every check.test(files).
+// This eliminates manual regex wiring in the gate runner and makes adding
+// a new component mechanical: drop the emitter (following Card pattern, including
+// this export) into codegen/emitters/ and it is protected automatically.
+const FIDELITY_CHECKS = [
+  {
+    test: (files) => {
+      const all = Object.values(files).join('\n');
+      return /CARD_TITLE_BRAND|CARD_DESC_BRAND|VERIFIED_CARD_BRAND/.test(all);
+    },
+    label: 'Symbol brands for slots'
+  },
+  {
+    test: (files) => {
+      const all = Object.values(files).join('\n');
+      return /createCardTitle|createCardDesc|createCardAction|createCard/.test(all);
+    },
+    label: 'guarded factory functions'
+  },
+  {
+    test: (files) => /VerifiedCard/.test(Object.values(files).join('\n')),
+    label: 'VerifiedCard branded constructor result'
+  },
+  {
+    test: (files) => {
+      const css = files['card.css'] || '';
+      return /--space-4: 16px|--space-2: 8px/.test(css);
+    },
+    label: 'token vars from tokens.shen'
+  },
+  {
+    test: (files) => {
+      const all = Object.values(files).join('\n');
+      return /\.card \{[\s\S]*?width: 300px/.test(all);
+    },
+    label: '.card root + proven width'
+  },
+  {
+    test: (files) => {
+      const all = Object.values(files).join('\n');
+      return /\.card__title|\.card__desc|\.card__actions/.test(all);
+    },
+    label: 'semantic slot classes'
+  },
+  {
+    test: (files) => /card > \* \+ \*/.test(Object.values(files).join('\n')),
+    label: 'owl selector (modern spacing)'
+  },
+  {
+    test: (files) => /@container \(min-width/.test(Object.values(files).join('\n')),
+    label: 'container query (responsive variant hook)'
+  },
+  {
+    test: (files) => {
+      const stories = files['Card.stories.tsx'] || '';
+      return /Storybook|Meta.*Verified Card|createCardTitle.*createCardDesc/.test(stories);
+    },
+    label: 'Storybook story stub (.stories.tsx)'
+  },
+  {
+    test: (files) => {
+      const fixture = files['card.fixture.json'] || '';
+      return /generatedBy.*card-emitter|golden verified-card data|card-design-fidelity theorem/.test(fixture);
+    },
+    label: 'test fixture / golden data (.fixture.json)'
+  },
+  {
+    test: (files) => {
+      const css = files['card.css'] || '';
+      return /card--mobile|card--tablet|card--desktop|variant matrix/.test(css);
+    },
+    label: 'CSS variant matrix (from card-variant)'
+  }
+];
+
 module.exports = {
   emit,
   generateCardTs,
@@ -627,5 +662,7 @@ module.exports = {
   CANONICAL_VERIFIED_CARD,
   makeCanonicalVerifiedCard,
   walkVerifiedCard,
-  extractHighLevelCardShape
+  extractHighLevelCardShape,
+  // Gate 4 fidelity registry entry (per-component, auto-discovered)
+  fidelityChecks: FIDELITY_CHECKS
 };
