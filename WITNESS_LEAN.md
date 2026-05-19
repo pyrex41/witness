@@ -48,7 +48,7 @@ Witness now eats its own dogfood. The same Shen sequent-calculus + Yoga/Pretext 
 - `witness-core.shen` captures the 14-field `frame-props` contract, `to-textura` lowering fidelity for proven/handled cells, per-branch responsive obligations, and renderer overflow respect. It loads only the SBCL-pure modules so the specs themselves pass the gates' `tc+`.
 
 The gates runner (`bin/witness-design-gates.sh`, surfaced as `witness gates`, `npm run gates`, and `/witness:gates`) runs:
-1. Gate 1: `tc+` on all design specs (re-uses `bin/witness-check.sh` two-phase measure + shen-sbcl).
+1. Gate 1: `tc+` on all design specs (re-uses `bin/witness-check.sh` two-phase measure + `shen-cl` (preferred) or `shen-sbcl`).
 2. Gate 2: property proofs (the `(define ... {sig})` theorems are proven by successful type-checking).
 3. Gate 3: regeneration/TCB audit (SHA-256 of core TCB files vs committed manifest; `--update-manifest` for intentional changes).
 
