@@ -246,6 +246,48 @@ witness/
 
 ---
 
+## Design Backpressure & Gates (sb-style self-hosting)
+
+Witness now has its own **sb-shen-backpressure-style gate system** to protect its evolution.
+
+> **🚀 Try the protected Card workflow in 60 seconds**
+>
+> ```bash
+> bash docs/card-protected-demo.sh
+> ```
+>
+> Runs Gate 4 (high-level `verified-card` emitter fidelity) + the rich `witness loop --gate 4 --dry-run` experience with a success banner. The fastest way to feel the self-hosting backpressure on the Card contracts.
+
+A concrete step toward eliminating dual maintenance: the emitter now calls `(card-contract-shape)` from the live contracts at runtime (see `specs/ui/properties/card-properties.shen`). The high-level emitter path consumes the real Shen shape instead of a hand-maintained JS mirror. Gate 4 enforces faithful output.
+
+Formal design specs live in `specs/design/*.shen` (witness-core contracts, load-order + trust macro guarantees, renderer obligations, etc.). These use the same sequent-calculus + `: verified` premises as user layout proofs.
+
+Run the gates with:
+
+```bash
+witness gates
+npm run gates
+./bin/witness-design-gates.sh --quick
+```
+
+**Current gates** (numbered, individually addressable, with TCB/regeneration audit):
+
+1. `tc+` on all design specs (using the real `fits?` / Pretext / `shen-sbcl` engine)
+2. Property proofs / design theorems
+3. Regeneration audit (SHA-256 fidelity check on the Trusted Computing Base — `witness.shen`, `trust.shen`, `layout.shen`, renderers, checker, etc.)
+
+This is the meta layer that will ensure the Card spike, `shen-witness` codegen emitter, semantic CSS, and guarded component factories stay faithful to their specs.
+
+See:
+- `specs/design/README.md`
+- `bin/witness-design-gates.sh --help`
+- `.claude/commands/witness/` (for future `/witness:gates`, `/witness:loop`, `/witness:spec-init` slash commands)
+- The full design document for the Shen UI Specifications vision
+
+As we build the larger system, the same proof machinery that protects *your* components will protect the implementation of the protector.
+
+---
+
 ## What Witness is not building (v1)
 
 - A JS code emitter (ShenScript is the runtime)
