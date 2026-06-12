@@ -30,7 +30,7 @@ Everything above the line exists and works. We write the glue.
 | Tier 1 — `assert-fits` load-time proof | ✅ works | `shen/proofs.shen`; throws during `$.load` |
 | Tier 1 — `proven-text` sequent calculus under `tc+` | ✅ works | Requires static text, font, bound |
 | Tier 1 — `handled-text` escape hatch (ellipsis/clip/visible) | ✅ works | Overflow CSS emitted by SSR + DOM renderers |
-| Tier 2 — bounded-string worst-case proofs | 🚧 planned | `(bounded N)` type is declared, not wired to `assert-fits` |
+| Tier 2 — bounded-string worst-case proofs | ✅ works | `shen/proofs.shen`: `assert-bounded-fits` (load-time) + `bounded-text` cell + `bounded?`/`assert-bounded` boundary guards. Worst case = `N × widest-glyph(Σ)`; exact for tabular numerals. See `examples/price-column.shen`, `test/tier2.test.js` |
 | Tier 3 — Figma structural diff (library) | 🚧 **WIP** | `shen/figma.shen` works on hand-crafted fixtures; not yet validated against real Figma REST API exports |
 | Tier 3 — Figma CLI (`witness check --figma`) | 🚧 **WIP** | End-to-end works on demo fixtures; see WIP note above |
 | Tier 4 — runtime `fits?` branching | ✅ works | Standard Shen `if` on `(fits? ...)` |

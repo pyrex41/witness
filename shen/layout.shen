@@ -130,6 +130,17 @@
   [text-node [proven-cell Text Font MaxW]] ->
     (textura-text Text Font 0 0 0 "visible")
 
+  \\ bounded-text: Tier-2 dynamic cell, proven to fit worst-case.
+  \\
+  \\ Render intrinsic (like proven-text) — Pretext measures the actual
+  \\ runtime value, which the worst-case proof guarantees is <= MaxW for
+  \\ any value the alphabet and length admit. The proof bound (MaxW) is not
+  \\ a rendered cell width, so tight bounds don't turn slack into
+  \\ whitespace. Text is trusted to conform (enforce with assert-bounded at
+  \\ the data boundary); the proof never depended on the value.
+  [text-node [bounded-cell Text Alphabet N Font MaxW]] ->
+    (textura-text Text Font 0 0 0 "visible")
+
   \\ handled-text: escape hatch with explicit overflow strategy.
   \\
   \\ visible  -> intrinsic width; overflow is the author's responsibility.

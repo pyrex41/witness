@@ -85,6 +85,69 @@ function extractPairs(source) {
   return [...pairs.values()];
 }
 
+// --- Tier 2 (bounded-string) support ---------------------------------------
+// Worst-case proofs measure each glyph of an alphabet, not whole strings, so
+// the SBCL/shen-cl proof path needs per-character measurements in the cache.
+// When a file uses any bounded form we measure every character of a standard
+// universe (covers digits, hex-digits, lower, upper, letters, alnum,
+// price-chars) plus any literal alphabet characters, for every font the file
+// references. This keeps `widest-glyph` resolvable under `*measurements*`.
+
+const STANDARD_CHARS =
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,$+-%/: ";
+
+function usesBoundedForms(source) {
+  return /\b(?:assert-bounded-fits|bounded-text|bounded-fits\?)\b/.test(source);
+}
+
+// Fonts referenced anywhere in the file, resolved to Pretext's "Npx Name".
+function extractFonts(source) {
+  const fonts = new Set();
+  let m;
+  const mkFont = /\(mk-font\s+"([^"]+)"\s+(\d+(?:\.\d+)?)\)/g;
+  while ((m = mkFont.exec(source)) !== null) fonts.add(`${m[2]}px ${m[1]}`);
+  const literal = /"(\d+(?:\.\d+)?px\s+[^"]+)"/g;
+  while ((m = literal.exec(source)) !== null) fonts.add(m[1]);
+  return [...fonts];
+}
+
+// Literal alphabet characters: (alphabet-of "...") and bare-string alphabets
+// passed to assert-bounded-fits / bounded-fits?. Named helpers (digits, etc.)
+// are subsets of STANDARD_CHARS, so they need no special handling.
+function extractAlphabetChars(source) {
+  let chars = "";
+  let m;
+  const patterns = [
+    /\(alphabet-of\s+"([^"]*)"\)/g,
+    /\((?:assert-bounded-fits|bounded-fits\?)\s+"([^"]*)"/g,
+  ];
+  for (const p of patterns) {
+    while ((m = p.exec(source)) !== null) chars += m[1];
+  }
+  return chars;
+}
+
+function boundedCharPairs(sources) {
+  const fonts = new Set();
+  let chars = STANDARD_CHARS;
+  let any = false;
+  for (const source of sources) {
+    if (!usesBoundedForms(source)) continue;
+    any = true;
+    for (const f of extractFonts(source)) fonts.add(f);
+    chars += extractAlphabetChars(source);
+  }
+  if (!any) return [];
+  const uniqueChars = [...new Set([...chars])];
+  const pairs = [];
+  for (const font of fonts) {
+    for (const ch of uniqueChars) {
+      pairs.push({ text: ch, font });
+    }
+  }
+  return pairs;
+}
+
 async function main() {
   const files = process.argv.slice(2).filter(f => !f.startsWith('-'));
   if (!files.length) {
@@ -94,11 +157,16 @@ async function main() {
 
   // Collect all text/font pairs from all files
   const allPairs = [];
+  const sources = [];
   for (const file of files) {
     const source = fs.readFileSync(file, 'utf8');
+    sources.push(source);
     const pairs = extractPairs(source);
     allPairs.push(...pairs);
   }
+
+  // Tier 2: per-glyph measurements for any file using bounded forms.
+  allPairs.push(...boundedCharPairs(sources));
 
   // Deduplicate
   const seen = new Set();

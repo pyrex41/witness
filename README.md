@@ -34,13 +34,13 @@ See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [
 |---|---|
 | `assert-fits` load-time proof (Tier 1) | works |
 | `proven-text` — literal-only, enforced at read time by `trust.shen` macro | works |
-| `prop-spec` — component-boundary bounds (`max-chars`, `min-chars`, `max-width`) enforced before render (Tier 2) | works |
+| `bounded-text` + `assert-bounded-fits` — worst-case proofs over an alphabet (Tier 2) | works — see [bounded proofs](#bounded-proofs) |
+| `prop-spec` — component-boundary bounds (`max-chars`, `min-chars`, `max-width`) enforced before render | works |
 | `handled-text` — visual fail-soft via CSS `ellipsis` / `clip` / `visible` (Tier 3) | works |
 | Figma structural diff, library + CLI | **WIP** — works on hand-crafted fixtures; [not yet validated](#figma-status) against real REST API exports |
 | SSR renderer → static HTML | works |
 | Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
 | `witness agent` widen-fix loop | works |
-| Bounded-string worst-case proofs — `(bounded N)` type | declared, not wired |
 | DOM runtime (`run-app`, TEA) | library exists; browser harness TBD |
 
 ---
@@ -122,19 +122,39 @@ The compiler measures the text at build time and either grants or denies the `ve
 
 If the text were "Submit your very long application for review", the `assert-fits` would fail to load with an exact measurement error. `(proven-text ...)` is further gated at read time: its first argument **must** be a literal string. Passing a variable or any other expression is a compile-time error, not a runtime one — the fallback to `handled-text` or `prop-spec` is spelled out in the error message.
 
-### For dynamic text, you have two choices
+<a id="bounded-proofs"></a>
+### For dynamic text, you have three choices
 
-Dynamic content (props, API responses, user input) never reaches `proven-text`. The compiler forces you to pick between:
+Dynamic content (props, API responses, user input) never reaches `proven-text`. The compiler forces you to pick one of:
 
 ```shen
-;; Option 1: Declare a bound at the component boundary (Tier 2)
+;; Option 1: PROVE the worst case fits (Tier 2 — bounded-string proof).
+;; You can't measure a value you don't have yet — but you can prove a
+;; statement about its *alphabet*. assert-bounded-fits discharges
+;;   ∀ s ∈ Σ^≤N. measure(s) ≤ MaxW
+;; by computing N × (widest glyph in Σ). For tabular (monospace) numerals
+;; every digit shares one advance, so the bound is exact: a price column
+;; that provably never overflows, for ANY price.
+(assert-bounded-fits (price-chars) 12 (mk-font "monospace" 14) 110)
+
+(define price-cell
+  Price -> [text-node (bounded-text Price (price-chars) 12 (mk-font "monospace" 14) 110)])
+
+;; bounded-text takes a *dynamic* value — that's the point. Verify the value
+;; against the bound once, at the trust boundary (parse-don't-validate):
+;;   (assert-bounded Price (price-chars) 12)
+;; after which every downstream render is statically safe. Built-in alphabets:
+;; (digits) (hex-digits) (lower) (upper) (letters) (alnum) (price-chars),
+;; or (alphabet-of "0123456789$.,-") for anything else.
+
+;; Option 2: Declare a bound at the component boundary.
 ;; The Astro runtime enforces (max-chars N) and (max-width Font W) against
 ;; props BEFORE render runs, so a malformed prop fails with a message
 ;; pointing at the offending key — not at a downstream layout overflow.
 (prop-spec "title" (max-chars 80))
 (prop-spec "title" (max-width (mk-font "Inter" 14) 200))
 
-;; Option 2: Explicit visual fail-soft with handled-text (Tier 3)
+;; Option 3: Explicit visual fail-soft with handled-text (Tier 3).
 ;; CSS truncation: text-overflow:ellipsis for ellipsis, overflow:hidden
 ;; for clip, nothing for visible. The build does not fail on overflow;
 ;; the rendered text does.
@@ -142,7 +162,9 @@ Dynamic content (props, API responses, user input) never reaches `proven-text`. 
   Text -> [text-node (handled-text Text (mk-font "Inter" 14) 200 ellipsis)])
 ```
 
-The two tiers compose: `prop-spec` is the editorial safety net (80 chars = "this is a title, not an essay"), `handled-text` is the visual contract for what passes through. Try to feed a dynamic value into `proven-text`, and you get a load-time error before any HTML is emitted.
+The tiers compose. `bounded-text` is the strongest claim — *no value the alphabet admits can overflow*, proven at build time and erased before production. `prop-spec` is the editorial safety net (80 chars = "this is a title, not an essay"). `handled-text` is the visual contract for genuinely unbounded content. Try to feed a dynamic value into `proven-text`, and you get a load-time error before any HTML is emitted. A worked example lives in `examples/price-column.shen`.
+
+> The bound is a proof about `measure`, which models a declared font stack. Fallback fonts and OS rasterization perturb reality, so state the guarantee as "proven under the declared metrics model" and bake a safety margin (prove at `0.95 × W`) into `MaxW`.
 
 ### Figma specs as executable contracts
 
