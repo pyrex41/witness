@@ -26,7 +26,7 @@
 \\ This lets proof checking run on any Shen implementation.
 
 (define measure
-  Text Font -> (if (trap-error (do (value *measurements*) true) (/. _ false))
+  Text Font -> (if (trap-error (do (value *measurements*) true) (/. E false))
                    (lookup-measurement Text Font (value *measurements*))
                    (textura.measure Text Font)))
 
