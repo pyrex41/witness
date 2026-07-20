@@ -1,0 +1,29 @@
+{
+  "en": {
+    "score.label": "Score",
+    "health.label": "Health",
+    "stamina.label": "Stamina",
+    "prompt": "Press E to collect the prism",
+    "item.name": "Sunfire Prism",
+    "item.rarity": "Legendary",
+    "item.blurb": "Forged in the first dawn; it hums faintly when danger is near."
+  },
+  "de": {
+    "score.label": "Punkte",
+    "health.label": "Lebenspunkte",
+    "stamina.label": "Ausdauer",
+    "prompt": "Drücke E zum Aufsammeln",
+    "item.name": "Sonnenprisma",
+    "item.rarity": "Legendär",
+    "item.blurb": "In der ersten Morgendämmerung geschmiedet; es summt leise bei Gefahr."
+  },
+  "fr": {
+    "score.label": "Score",
+    "health.label": "Santé",
+    "stamina.label": "Endurance",
+    "prompt": "Appuyez sur E pour ramasser",
+    "item.name": "Prisme Solaire",
+    "item.rarity": "Légendaire",
+    "item.blurb": "Forgé à la première aube; il vibre doucement près du danger."
+  }
+}

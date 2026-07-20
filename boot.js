@@ -17,8 +17,15 @@ if (typeof globalThis.OffscreenCanvas === 'undefined') {
 // same file via @font-face; the exported PINNED_FONT_FAMILY / PINNED_FONT_FILE
 // helpers below let consumers do that without hardcoding paths.
 const PINNED_FONT_FAMILY = 'JetBrains Mono';
-const PINNED_FONT_FILE = require.resolve(
-  '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff'
+// The vendored TTF, not the fontsource WOFF: node-canvas goes through
+// pango/fontconfig on Linux, which cannot parse WOFF — registerFont(woff)
+// fails silently and measurements fall back to the system sans font while
+// isFontAvailable still reports the pinned family as present. The TTF is
+// the same fontsource file unwrapped (see vendor/fonts/woff-to-ttf.js) and
+// works everywhere; browsers accept it in @font-face too, so consumers can
+// embed this exact file for measurement/render parity.
+const PINNED_FONT_FILE = require('path').join(
+  __dirname, 'vendor', 'fonts', 'jetbrains-mono-latin-400-normal.ttf'
 );
 let fontRegistered = false;
 function ensurePinnedFont() {

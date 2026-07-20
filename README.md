@@ -25,6 +25,9 @@ node cli/agent.js examples/card-overflow.shen
 
 # HTML-in-canvas: build the interactive cloth demo (proofs run at build time)
 node examples/card-cloth.js && open examples/card-cloth.html
+
+# three.js: prove a localized game HUD, bake it into textures, play it
+node examples/three-hud/build.js && open examples/three-hud/index.html
 ```
 
 ### Proven cloth (HTML-in-canvas demo)
@@ -38,6 +41,30 @@ Verlet cloth — drag it, crank the wind. The point: once HTML becomes texture p
 there is no DOM left to fail soft, so every text cell in the weave is either
 `proven-text` (statically proven to fit) or `handled-text` (explicit ellipsis) —
 and the build fails if a proof doesn't discharge.
+
+### Proven HUD in three.js (game UI demo)
+
+<img src="docs/images/three-hud.png" width="600" alt="A witness-proven, localized game HUD rendered as three.js textures: status panel, world-space item tooltip, and prompt bar">
+
+`examples/three-hud/` takes the same idea where it matters most: a **game UI**,
+where text lives in GPU textures and there is no DOM fail-soft at all.
+`build.js` proves a localized HUD (`hud.shen` + `locales.json`, en/de/fr) and
+bakes it into a self-contained three.js scene (`index.html`) with a status
+panel, a world-space item tooltip, and an interact prompt:
+
+- **Tier 1** static chrome (`assert-fits`), **Tier 2** locale bundles checked
+  against `prop-spec` `max-width` bounds via `enforce-props` — a translation
+  that outgrows its slot fails the build with the key named, replacing the
+  per-locale screenshot-QA pass.
+- **Worst-case proofs for runtime strings**: the pinned measurement font is
+  strictly monospace, so proving a 12-char string fits the nameplate proves
+  *every* possible ≤12-char player name fits; same for a 6-digit score cap.
+  The runtime only has to enforce the same ceilings.
+- **Exact metrics**: the page embeds the exact TTF Node measured with
+  (`PINNED_FONT_FILE`), so browser glyph widths equal proven widths — no
+  headroom guessing. This surfaced a real bug: node-canvas on Linux silently
+  ignores WOFF fonts, so the pin now uses a vendored TTF unwrapped from the
+  same fontsource file (`vendor/fonts/`).
 
 See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [`WITNESS_LEAN.md`](WITNESS_LEAN.md) for the spec and roadmap.
 
@@ -256,7 +283,12 @@ witness/
     ├── card-overflow.shen
     ├── card-cloth.shen     # HTML-in-canvas cloth demo: proven texture source
     ├── card-cloth.js       # builds card-cloth.html (proofs run at build time)
-    └── counter.shen
+    ├── counter.shen
+    └── three-hud/          # proven localized game HUD baked into three.js textures
+        ├── hud.shen        # panel views + prop-spec locale bounds + static proofs
+        ├── locales.json    # en/de/fr bundles, each enforced against the bounds
+        ├── build.js        # prove → SSR → bake self-contained index.html
+        └── runtime.js      # three.js scene: HUD compositing, nameplate, tooltip
 ```
 
 ~1,100 lines of Shen. ~730 lines of JS glue.
