@@ -22,7 +22,22 @@ node cli/check.js check --figma examples/card-design.json examples/card.shen
 
 # Agent: parse structured overflow errors and auto-widen containers
 node cli/agent.js examples/card-overflow.shen
+
+# HTML-in-canvas: build the interactive cloth demo (proofs run at build time)
+node examples/card-cloth.js && open examples/card-cloth.html
 ```
+
+### Proven cloth (HTML-in-canvas demo)
+
+<img src="docs/images/card-cloth.png" width="600" alt="Witness-proven HTML rasterized to a canvas texture and draped on an interactive Verlet cloth">
+
+Inspired by [html-in-canvas's `html-cloth` plugin](https://github.com/fimbox/html-in-canvas/blob/main/plugins/html-cloth.mjs),
+`examples/card-cloth.shen` + `examples/card-cloth.js` rasterize a witness-proven layout
+into a `<canvas>` texture (via SVG `foreignObject`) and drape it over an interactive
+Verlet cloth — drag it, crank the wind. The point: once HTML becomes texture pixels
+there is no DOM left to fail soft, so every text cell in the weave is either
+`proven-text` (statically proven to fit) or `handled-text` (explicit ellipsis) —
+and the build fails if a proof doesn't discharge.
 
 See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [`WITNESS_LEAN.md`](WITNESS_LEAN.md) for the spec and roadmap.
 
@@ -239,6 +254,8 @@ witness/
 └── examples/
     ├── card.shen
     ├── card-overflow.shen
+    ├── card-cloth.shen     # HTML-in-canvas cloth demo: proven texture source
+    ├── card-cloth.js       # builds card-cloth.html (proofs run at build time)
     └── counter.shen
 ```
 
