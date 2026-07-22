@@ -26,23 +26,21 @@ async function bootAndLoadCardSpec() {
   const $ = await boot();
   await $.exec('(tc -)');
 
-  // Load via witness-core (which pulls in all *-properties.shen including card-properties
-  // that defines (card-contract-shape)). This ensures the runtime shape is always
-  // available for the high-level driven path. Props direct load kept as fallback.
-  try {
-    const coreRel = 'specs/design/witness-core.shen';
-    const coreAbs = path.join(__dirname, '..', '..', coreRel);
-    await $.load(coreAbs);
-  } catch (e) {
-    // Fallback: direct props (may need framework context)
+  // card-properties.shen is what defines (card-contract-shape), so load it
+  // DIRECTLY. This used to go via witness-core.shen on the assumption that it
+  // pulled in all *-properties.shen — it no longer does (it is a stub), so the
+  // load silently succeeded while defining nothing, and the shape was never
+  // available. Load witness-core too, but only for its own content.
+  const tryLoad = async rel => {
     try {
-      const propsRel = 'specs/ui/properties/card-properties.shen';
-      const propsAbs = path.join(__dirname, '..', '..', propsRel);
-      await $.load(propsAbs);
-    } catch (e2) {
-      // Not fatal; low-level path still works.
+      await $.load(path.join(__dirname, '..', '..', rel));
+      return true;
+    } catch (e) {
+      return false;
     }
-  }
+  };
+  await tryLoad('specs/design/witness-core.shen');
+  await tryLoad('specs/ui/properties/card-properties.shen');
 
   // Also load the thin low-level layer for backward compat (render-view etc.)
   const specRel = 'specs/ui/card-spec.shen';
@@ -90,12 +88,31 @@ function parseContractShape(raw) {
  * Live contract shape from Shen (card-contract-shape). Removes need for
  * hand-maintained JS mirror of verified-card.
  */
+/**
+ * ShenScript hands back Shen values in their native representation: lists are
+ * Cons cells (not JS arrays), and Shen's true/false — like every Shen symbol —
+ * arrive as JS symbols. parseContractShape wants plain arrays/primitives, so
+ * convert the whole tree first. The empty Shen list is null, which is also how
+ * a Cons chain terminates, so it maps to an empty array.
+ */
+function shenToJs($, v) {
+  if (v === null || v === undefined) return [];
+  if (typeof v === 'symbol') {
+    const d = Symbol.keyFor(v) || v.description || String(v);
+    if (d === 'true') return true;
+    if (d === 'false') return false;
+    return d;
+  }
+  if ($.isCons && $.isCons(v)) return $.toArray(v).map(x => shenToJs($, x));
+  return v; // string | number | anything already primitive
+}
+
 async function getCardContractShape($) {
   let shape = null;
   let why = '(card-contract-shape) returned nothing';
   try {
     const raw = await $.exec('(card-contract-shape)');
-    if (raw) shape = parseContractShape(raw);
+    if (raw) shape = parseContractShape(shenToJs($, raw));
   } catch (e) {
     why = String((e && e.message) || e).split('\n')[0];
   }

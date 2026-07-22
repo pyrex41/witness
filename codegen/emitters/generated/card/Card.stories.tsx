@@ -4,7 +4,7 @@
 // Gate 4 protects this alongside Card.tsx + card.css.
 
 import type { Meta, StoryObj } from '@storybook/react';
-import { Card, createCard, createCardAction } from './Card';
+import { Card, createCard, createCardTitle, createCardDesc, createCardAction } from './Card';
 
 const meta: Meta<typeof Card> = {
   title: 'Design System/Verified Card',
@@ -23,8 +23,8 @@ export default meta;
 type Story = StoryObj<typeof Card>;
 
 const canonical = createCard(
-  createXXX('Card Title'),
-  createXXX('Short desc for construction.'),
+  createCardTitle('Card Title'),
+  createCardDesc('Short desc for construction.'),
   [createCardAction('View Details'), createCardAction('Save')]
 );
 

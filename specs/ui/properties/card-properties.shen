@@ -55,12 +55,13 @@
   ___ tablet  : card-variant;
   ___ desktop : card-variant;)
 
+(declare variant-width [card-variant --> number])
+
 (define variant-width
+  {card-variant --> number}
   mobile  -> 268
   tablet  -> 400
   desktop -> 600)
-
-(declare variant-width [card-variant --> number])
 
 \\ --- Layout obligations (pure helper; real impl would build frame tree + solve-layout) ---
 \\ In full runtime (after layout/responsive/figma loaded via witness.shen) this
@@ -68,29 +69,39 @@
 \\ For the spike the token arithmetic + fits? premises on the slots suffice.
 \\ Re-uses variant-width and token-value so obligations are expressed in design tokens.
 
+(declare layout-obligations-satisfied [card-title-slot --> [card-desc-slot --> [[list card-action-slot] --> [card-variant --> [design-tokens --> boolean]]]]])
+
 (define layout-obligations-satisfied
+  {card-title-slot --> card-desc-slot --> (list card-action-slot) --> card-variant --> design-tokens --> boolean}
   Title Desc Actions Variant Tokens ->
     (let W (variant-width Variant)
          Gap (token-value Tokens "space-2")
       (and (>= W 268) (>= Gap 0) true)))
 
-(declare layout-obligations-satisfied [card-title-slot --> [card-desc-slot --> [(list card-action-slot) --> [card-variant --> [design-tokens --> boolean]]]]])
+\\ NOTE: (declare F Type) EVALUATES its type argument — [...] builds the list and
+\\ bare symbols self-evaluate, but (list card-action-slot) would be read as a call
+\\ to an undefined function `list` and abort the whole file at load. The list type
+\\ must therefore be written in bracket form here. (Inside a `datatype`, types are
+\\ not evaluated, so the (list card-action-slot) at the Actions premise below is
+\\ correct as written.)
 
 \\ --- Figma premise (stub in design path; real version installed by card-spec.shen) ---
 \\ Under Gate 1 (pure SBCL via witness-sbcl) we use the stub so the datatype
 \\ loads without pulling in figma.shen / layout. The real verify-figma is
 \\ installed by overriding the function in card-spec.shen (full load path).
 
-(define figma-card-matches
-  Path Variant Tolerance -> true)
-
 (declare figma-card-matches [string --> [card-variant --> [number --> boolean]]])
 
-\\ Future: each variant carries its own proven subtree (cf. responsive-semantics-contract).
-(define responsive-variants-proven
-  Variant Tokens -> (and (>= (variant-width Variant) 268) true))
+(define figma-card-matches
+  {string --> card-variant --> number --> boolean}
+  Path Variant Tolerance -> true)
 
+\\ Future: each variant carries its own proven subtree (cf. responsive-semantics-contract).
 (declare responsive-variants-proven [card-variant --> [design-tokens --> boolean]])
+
+(define responsive-variants-proven
+  {card-variant --> design-tokens --> boolean}
+  Variant Tokens -> (and (>= (variant-width Variant) 268) true))
 
 \\ --- verified-lift: the intentional bridge for executable-yet-provable obligations ---
 \\ In a dependently-typed setting it is common and principled to have
@@ -146,7 +157,7 @@
   \\       (>= (variant-width tablet) 268)
   \\       (>= (variant-width desktop) 268)))
 
-(declare card-variants-respect-minimum-content-width {--> boolean})
+(declare card-variants-respect-minimum-content-width [--> boolean])
 
 (define title-and-actions-never-overflow-under-gap-token
   {--> boolean}
@@ -158,14 +169,14 @@
   \\     (and (>= TitleMax ActionsTotal)
   \\          true)))
 
-(declare title-and-actions-never-overflow-under-gap-token {--> boolean})
+(declare title-and-actions-never-overflow-under-gap-token [--> boolean])
 
 (define default-variant-figma-structural-match-reified
   {--> boolean}
   -> true)
   \\ (figma-card-matches "examples/card-design.json" mobile 2))
 
-(declare default-variant-figma-structural-match-reified {--> boolean})
+(declare default-variant-figma-structural-match-reified [--> boolean])
 
 \\ Token arithmetic across slots (new meaningful property theorem).
 \\ Proves using the live token-value and variant-width (same helpers used by
@@ -183,7 +194,7 @@
   \\     (and (<= Total Tightest)
   \\          true)))
 
-(declare action-pair-plus-gap-never-exceeds-tightest-variant {--> boolean})
+(declare action-pair-plus-gap-never-exceeds-tightest-variant [--> boolean])
 
 \\ --- Top-level design fidelity claim for the Card spike ---
 \\ This theorem now *constructs* a verified-card using the high-level slot
@@ -207,7 +218,7 @@
   \\ design fidelity claims.
 )
 
-(declare card-design-fidelity {--> boolean})
+(declare card-design-fidelity [--> boolean])
 
 \\ End of card-properties.shen
 \\ The high-level contracts (now including 4 theorems exercising slots, layout
@@ -226,82 +237,92 @@
 
 (define card-contract-shape
   { --> [list *] }
-  -> (list
-       (list "name" "verified-card")
-       (list "slots"
-         (list
-           (list "title"
-             (list "type" "card-title-slot"
-                   "has_fits_premise" true
-                   "maxW" 268
-                   "font" "18px/1.2 sans-serif"
-                   "jsKey" "title"
-                   "ctor" "mk-card-title"
-                   "ctorField" "text"
-                   "contentField" "text"
-                   "jsType" "CardTitle"
-                   "jsBrand" "CARD_TITLE_BRAND"
-                   "factory" "createCardTitle"
-                   "defaultContent" "Card Title"
-                   "isList" false
-                   "requireNonEmpty" true
-                   "walkKey" "titleSlot"
-                   "fontVar" "--font-title"
-                   "color" "#111"
-                   "includeMaxW" true))
-           (list "desc"
-             (list "type" "card-desc-slot"
-                   "has_fits_premise" false
-                   "strategy" "ellipsis"
-                   "maxW" 268
-                   "font" "14px/1 sans-serif"
-                   "jsKey" "desc"
-                   "ctor" "mk-card-desc"
-                   "ctorField" "text"
-                   "contentField" "text"
-                   "jsType" "CardDesc"
-                   "jsBrand" "CARD_DESC_BRAND"
-                   "factory" "createCardDesc"
-                   "defaultContent" "Short desc for construction."
-                   "isList" false
-                   "requireNonEmpty" false
-                   "walkKey" "descSlot"
-                   "fontVar" "--font-action"
-                   "color" "#444"
-                   "ellipsis" true))
-           (list "actions"
-             (list "type" "card-action-slot"
-                   "has_fits_premise" true
-                   "maxW" 120
-                   "font" "14px/1 sans-serif"
-                   "jsKey" "actions"
-                   "ctor" "mk-card-action"
-                   "ctorField" "label"
-                   "contentField" "text"
-                   "jsType" "CardAction"
-                   "jsBrand" "CARD_ACTION_BRAND"
-                   "factory" "createCardAction"
-                   "isList" true
-                   "requireNonEmpty" true
-                   "walkKey" "actionSlots"
-                   "canonicalContents" (list "View Details" "Save")
-                   "itemClass" "card__action"
-                   "fontVar" "--font-action"
-                   "color" "#444"))))
-       (list "variants" (list "mobile" "tablet" "desktop"))
-       (list "default_variant" "mobile")
-       (list "tokens" (list "space-4" "space-2" "radius-lg" "text-title" "text-action"))
-       (list "token_values" (list (list "space-4" 16) (list "space-2" 8) (list "radius-lg" 8) (list "text-title" 18) (list "text-action" 14)))
-       (list "variant_widths" (list (list "mobile" 268) (list "tablet" 400) (list "desktop" 600)))
-       (list "directDefaults" (list (list "variant" "mobile") (list "tokens" "default-tokens")))
-       (list "obligations" (list "layout" "figma" "responsive"))
+  \\ Shen has no (list ...) function — square brackets ARE the list constructor,
+  \\ and their elements are evaluated (so strings, numbers, booleans and nested
+  \\ brackets all work directly). This definition previously used (list ...)
+  \\ throughout, which meant the whole descriptor failed at load with
+  \\ `function "list" is not defined` and the emitter silently fell back to a
+  \\ hardcoded baseline. Shapes below match what codegen/emitters/card-emitter.js
+  \\ parses in parseContractShape:
+  \\   - top level, "slots", token_values, variant_widths, directDefaults:
+  \\       lists of [key value] PAIRS
+  \\   - variants / tokens / obligations / canonicalContents: flat lists
+  \\   - instanceShape: flat 4-element [tag key kind target] entries
+  -> [
+       ["name" "verified-card"]
+       ["slots"
+         [
+           ["title"
+             [["type" "card-title-slot"]
+              ["has_fits_premise" true]
+              ["maxW" 268]
+              ["font" "18px/1.2 sans-serif"]
+              ["jsKey" "title"]
+              ["ctor" "mk-card-title"]
+              ["ctorField" "text"]
+              ["contentField" "text"]
+              ["jsType" "CardTitle"]
+              ["jsBrand" "CARD_TITLE_BRAND"]
+              ["factory" "createCardTitle"]
+              ["defaultContent" "Card Title"]
+              ["isList" false]
+              ["requireNonEmpty" true]
+              ["walkKey" "titleSlot"]
+              ["fontVar" "--font-title"]
+              ["color" "#111"]
+              ["includeMaxW" true]]]
+           ["desc"
+             [["type" "card-desc-slot"]
+              ["has_fits_premise" false]
+              ["strategy" "ellipsis"]
+              ["maxW" 268]
+              ["font" "14px/1 sans-serif"]
+              ["jsKey" "desc"]
+              ["ctor" "mk-card-desc"]
+              ["ctorField" "text"]
+              ["contentField" "text"]
+              ["jsType" "CardDesc"]
+              ["jsBrand" "CARD_DESC_BRAND"]
+              ["factory" "createCardDesc"]
+              ["defaultContent" "Short desc for construction."]
+              ["isList" false]
+              ["requireNonEmpty" false]
+              ["walkKey" "descSlot"]
+              ["fontVar" "--font-action"]
+              ["color" "#444"]
+              ["ellipsis" true]]]
+           ["actions"
+             [["type" "card-action-slot"]
+              ["has_fits_premise" true]
+              ["maxW" 120]
+              ["font" "14px/1 sans-serif"]
+              ["jsKey" "actions"]
+              ["ctor" "mk-card-action"]
+              ["ctorField" "label"]
+              ["contentField" "text"]
+              ["jsType" "CardAction"]
+              ["jsBrand" "CARD_ACTION_BRAND"]
+              ["factory" "createCardAction"]
+              ["isList" true]
+              ["requireNonEmpty" true]
+              ["walkKey" "actionSlots"]
+              ["canonicalContents" ["View Details" "Save"]]
+              ["itemClass" "card__action"]
+              ["fontVar" "--font-action"]
+              ["color" "#444"]]]]]
+       ["variants" ["mobile" "tablet" "desktop"]]
+       ["default_variant" "mobile"]
+       ["tokens" ["space-4" "space-2" "radius-lg" "text-title" "text-action"]]
+       ["token_values" [["space-4" 16] ["space-2" 8] ["radius-lg" 8] ["text-title" 18] ["text-action" 14]]]
+       ["variant_widths" [["mobile" 268] ["tablet" 400] ["desktop" 600]]]
+       ["directDefaults" [["variant" "mobile"] ["tokens" "default-tokens"]]]
+       ["obligations" ["layout" "figma" "responsive"]]
        \\ Top-level shape for a verified-card instance (what keys exist on the object)
-       (list "instanceShape"
-         (list
-           (list "key" "title"   "slot" "title")
-           (list "key" "desc"    "slot" "desc")
-           (list "key" "actions" "slot" "actions")
-           (list "key" "variant" "direct" true)
-           (list "key" "tokens"  "direct" true)))))
+       ["instanceShape"
+         [["key" "title"   "slot" "title"]
+          ["key" "desc"    "slot" "desc"]
+          ["key" "actions" "slot" "actions"]
+          ["key" "variant" "direct" true]
+          ["key" "tokens"  "direct" true]]]])
 
-(declare card-contract-shape { --> [list *] })
+(declare card-contract-shape [--> [list *]])

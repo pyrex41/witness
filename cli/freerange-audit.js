@@ -757,60 +757,57 @@ function buildBoundsFacts(parsedFiles) {
 }
 
 function renderShenFile(facts, excluded, sourcePaths, generatorInvocation) {
-  const header = `\\ specs/generated/numeric-bounds.shen — GENERATED FILE, DO NOT EDIT BY HAND
-\\
-\\ Generator:  cli/freerange-audit.js
-\\ Invocation: ${generatorInvocation}
-\\ Source(s):  ${sourcePaths.length ? sourcePaths.join(', ') : '(none)'}
-\\ Generated:  ${new Date().toISOString()}
-\\
-\\ Regenerate with:
-\\   node cli/freerange-audit.js ${sourcePaths.join(' ')} --emit-shen specs/generated/numeric-bounds.shen
-\\
-\\ HONEST LIMITATION: freerange is NUMBERS ONLY. Every fact below bounds a
-\\ numeric layout WIDTH or COUNT that freerange's static interval analysis
-\\ inferred for a fully-analyzed, top-level function's return value. This
-\\ file says nothing about STRINGS -- bounded-string / max-chars worst-case
-\\ proofs are a separate, pre-existing rule (the single-argument
-\\ \`S : (bounded N)\` sequent in shen/proofs.shen, over string-length) that
-\\ this generator does not touch and freerange cannot analyze.
-\\
-\\ Soundness gates applied before a function's return value becomes a fact
-\\ here (see cli/freerange-audit.js's buildBoundsFacts):
-\\   1. freerange reported the function as FULLY analyzed (no
-\\      partially-supported / unsupported / skipped findings for it).
-\\   2. Its \`ensures\` fact for the (whole, top-level) return value parsed
-\\      to a CLOSED interval -- both a finite lower and a finite upper
-\\      bound. One-sided or fully open ranges are excluded (see below):
-\\      there is no "worst case" to discharge a fits?-style obligation
-\\      against.
-\\
-\\ Each fact is a pair: \`(define fr-bound-<fn> { --> (list number) } -> (list Lo Hi))\`
-\\ plus companion integer?/finite? flags, consumable by the \`(bounded Lo Hi)\`
-\\ rule in shen/proofs.shen.
+  const header = `\\\\ specs/generated/numeric-bounds.shen — GENERATED FILE, DO NOT EDIT BY HAND
+\\\\
+\\\\ Generator:  cli/freerange-audit.js
+\\\\ Invocation: ${generatorInvocation}
+\\\\ Source(s):  ${sourcePaths.length ? sourcePaths.join(', ') : '(none)'}
+\\\\ Generated:  ${new Date().toISOString()}
+\\\\
+\\\\ Regenerate with:
+\\\\   node cli/freerange-audit.js ${sourcePaths.join(' ')} --emit-shen specs/generated/numeric-bounds.shen
+\\\\
+\\\\ HONEST LIMITATION: freerange is NUMBERS ONLY. Every fact below bounds a
+\\\\ numeric layout WIDTH or COUNT that freerange's static interval analysis
+\\\\ inferred for a fully-analyzed, top-level function's return value. This
+\\\\ file says nothing about STRINGS -- bounded-string / max-chars worst-case
+\\\\ proofs are a separate, pre-existing rule (the single-argument
+\\\\ \`S : (bounded N)\` sequent in shen/proofs.shen, over string-length) that
+\\\\ this generator does not touch and freerange cannot analyze.
+\\\\
+\\\\ Soundness gates applied before a function's return value becomes a fact
+\\\\ here (see cli/freerange-audit.js's buildBoundsFacts):
+\\\\   1. freerange reported the function as FULLY analyzed (no
+\\\\      partially-supported / unsupported / skipped findings for it).
+\\\\   2. Its \`ensures\` fact for the (whole, top-level) return value parsed
+\\\\      to a CLOSED interval -- both a finite lower and a finite upper
+\\\\      bound. One-sided or fully open ranges are excluded (see below):
+\\\\      there is no "worst case" to discharge a fits?-style obligation
+\\\\      against.
+\\\\
+\\\\ Each fact is a pair: \`(define fr-bound-<fn> { --> (list number) } -> [Lo Hi])\`
+\\\\ plus companion integer?/finite? flags, consumable by the \`(bounded Lo Hi)\`
+\\\\ rule in shen/proofs.shen.
 `;
 
   const factLines = facts.map((f) => {
-    return `\\ ${f.function} (${f.file}) — from: ensures: ${f.sourceRaw}
-(define ${f.shenName} { --> (list number) } -> (list ${shenNumberLiteral(f.lower)} ${shenNumberLiteral(f.upper)}))
-(declare ${f.shenName} { --> (list number) })
+    return `\\\\ ${f.function} (${f.file}) — from: ensures: ${f.sourceRaw}
+(define ${f.shenName} { --> (list number) } -> [${shenNumberLiteral(f.lower)} ${shenNumberLiteral(f.upper)}])
 
 (define ${f.shenName}-integer? { --> boolean } -> ${f.integer ? 'true' : 'false'})
-(declare ${f.shenName}-integer? { --> boolean })
 
 (define ${f.shenName}-finite? { --> boolean } -> ${f.finite ? 'true' : 'false'})
-(declare ${f.shenName}-finite? { --> boolean })
 `;
   });
 
   const excludedComment =
     excluded.length === 0
       ? ''
-      : `\\ --- Not emitted (soundness gates above) ---\n` +
+      : `\\\\ --- Not emitted (soundness gates above) ---\n` +
         excluded
           .map(
             (e) =>
-              `\\   ${e.function} (${e.file}): ${e.reason}` +
+              `\\\\   ${e.function} (${e.file}): ${e.reason}` +
               (e.reason === 'open-or-unbounded-interval' ? ` [${e.lower}, ${e.upper}]` : '')
           )
           .join('\n') +
@@ -818,7 +815,7 @@ function renderShenFile(facts, excluded, sourcePaths, generatorInvocation) {
 
   const body =
     facts.length === 0
-      ? '\\ No facts learned this run (nothing passed both soundness gates above).\n'
+      ? '\\\\ No facts learned this run (nothing passed both soundness gates above).\n'
       : factLines.join('\n');
 
   return header + '\n' + body + '\n' + excludedComment;

@@ -118,9 +118,10 @@ shen/dom.shen 3d8c6cfe989f942e4851b33596296f0d0abf49e7052a71c532d2d5080a17387b
 bin/witness-check.sh 46a9c68c1f33396255e3f37ca58977d3b08a9039326fc1377b0f958db933eed8
 cli/measure.js 3863243d3569b8506ebbf00f93301e7f0e9fe4ff944baf51fc0ca8b63686b0fe
 cli/shen-check.js 7d4d4216fcc2de39068baec6546a491a1632a4839c6e797097e708ce8648dce5
-cli/freerange-audit.js 07fec387a6c24d32bfc85bb0e1e4250e21ddcde74a0a0fcf53668e4e1487f817
+cli/freerange-audit.js 810a11d34c08148265364ca42f06f1760d3a0d061334892272b079818ade3a3b
 MANIFEST_EOF
 )
+# === END OF UPDATED BLOCK ===
 
 # Color setup (CI-safe: disabled when stdout is not a tty)
 setup_colors() {

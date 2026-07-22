@@ -73,7 +73,25 @@ Any violation becomes a hard failure (type error or overflow) before you can shi
 
 ### Gate Structure (sb-style, modeled on `.claude/commands/sb/loop.md` + TCB audit)
 
-- **Gate 1: tc+ Design Specs** — Runs `witness-check.sh` on every `*.shen` in `specs/design/`. Catches broken datatypes, unprovable `:verified` premises, or invariants that no longer hold in the live implementation. (Now includes the Card spike contracts via `witness-core.shen` loading `specs/ui/properties/card-properties.shen`.)
+- **Gate 1: tc+ Design Specs** — Runs `witness-check.sh` on every `*.shen` in `specs/design/`. Catches broken datatypes, unprovable `:verified` premises, or invariants that no longer hold in the live implementation.
+
+  > **Scope caveat — read this before trusting Gate 1.** `witness-core.shen` was reduced to a
+  > stub and no longer loads `specs/ui/properties/*.shen`, so Gate 1 currently type-checks only
+  > `witness-core.shen` and `load-order-trust.shen` — *not* the Card contracts or the four
+  > property theorems. Gate 4 is what actually exercises `card-properties.shen` (it loads it
+  > directly, under `tc-`, and now drives the emitter from the live `(card-contract-shape)`).
+  >
+  > Bringing the Card contracts under Gate 1 needs one unresolved design decision:
+  > under `tc+` every `define` requires an inline `{...}` signature, and giving `mk-card-title`
+  > / `mk-card-desc` / `mk-card-action` a signature returning `card-title-slot` etc. would let
+  > the constructor claim that type *without* the `fits?` premise — weakening the exact
+  > obligation the datatype exists to enforce. The constructors need a raw return type with the
+  > refined type granted only by the datatype rule. Until that is settled, do not assume a green
+  > Gate 1 covers the component contracts.
+  >
+  > Two `tc+` rules worth knowing when you do settle it: `(declare F Type)` **evaluates** its
+  > type argument, so list types must be written `[list X]` rather than `(list X)`; and a
+  > redundant `(declare ...)` following an inline-signed `define` is itself a type error.
 - **Gate 2: Property Proofs** — The theorems (`tier-1-always-requires-literal`, `witness-core-design-fidelity`, `renderer-contract`, `card-design-fidelity`, etc.) are proven by the successful `tc+` of their defining file. The type checker *is* the proof engine.
 - **Gate 3: Regeneration / TCB Audit** — SHA-256 of the core TCB (`shen/witness.shen`, `trust.shen`, `layout.shen`, `proofs.shen`, `witness-sbcl.shen` (loader for `shen-cl` or `shen-sbcl`), renderers `ssr.shen`/`dom.shen`, `bin/witness-check.sh`, `cli/measure.js`) vs the committed manifest embedded in the runner. Fails on any drift. Directly analogous to sb-shen-backpressure's Gate 5 `tcb-audit`.
 - **Gate 4: Emitter Fidelity** — Auto-discovers `codegen/emitters/*-emitter.js`, runs each emitter on its spec/contracts (high-level verified-* walk), enforces the checks declared in the emitter's `fidelityChecks[]` export (brands, factories, tokens, semantic CSS, richer targets, etc.), and (new) runs `tsc --noEmit` (shim + temp tsconfig) on every emitted `*.tsx`. The Card emitter (`card-emitter.js`) is the seed; adding components is now turnkey (`witness spec-init`) + the tiny generic loader + the convention (no edits to any gate runner). The new tools + Gate 4 auto-discovery make the whole experience one-command for 80 % of the work. Protects the codegen bridge itself, stronger than before.

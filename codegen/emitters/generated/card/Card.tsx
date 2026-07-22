@@ -8,7 +8,7 @@ import * as React from 'react';
 
 const CARD_TITLE_BRAND = Symbol('CardTitle');
 const CARD_DESC_BRAND = Symbol('CardDesc');
-const CARD_ACTIONS_BRAND = Symbol('CardAction');
+const CARD_ACTION_BRAND = Symbol('CardAction');
 const VERIFIED_CARD_BRAND = Symbol('VerifiedCard');
 
 export interface CardTitle {
@@ -26,7 +26,7 @@ export interface CardDesc {
 }
 
 export interface CardAction {
-  readonly [CARD_ACTIONS_BRAND]: true;
+  readonly [CARD_ACTION_BRAND]: true;
   readonly text: string;
   readonly font: string;
   readonly maxW: number;
@@ -62,7 +62,7 @@ export function createCardAction(text: string): CardAction {
     throw new Error('CardAction requires non-empty string');
   }
   // Bounds + attrs projected from (card-contract-shape) slot descriptors (single source).
-  return { [CARD_ACTIONS_BRAND]: true, text: text, font: '14px/1 sans-serif', maxW: 120 };
+  return { [CARD_ACTION_BRAND]: true, text: text, font: '14px/1 sans-serif', maxW: 120 };
 }
 
 export function createCard(
@@ -73,7 +73,7 @@ export function createCard(
 ): VerifiedCard {
   if (!title || !(CARD_TITLE_BRAND in title)) throw new Error('title must be createCardTitle(...)');
   if (!desc || !(CARD_DESC_BRAND in desc)) throw new Error('desc must be createCardDesc(...)');
-  if (!Array.isArray(actions) || actions.some(a => !(CARD_ACTIONS_BRAND in a))) {
+  if (!Array.isArray(actions) || actions.some(a => !(CARD_ACTION_BRAND in a))) {
     throw new Error('actions must be array of createCardAction(...)');
   }
   if (!["mobile","tablet","desktop"].includes(variant)) {

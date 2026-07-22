@@ -76,7 +76,7 @@
   \\ Trivial conjunction + construction = the proof that the scaling pattern holds.
   \\ Gate 1 accepts this (illustrative contract only; see header).
 
-(declare alert-design-fidelity {--> boolean})
+(declare alert-design-fidelity [--> boolean])
 
 \\ End of alert-properties.shen
 \\ This illustrative contract-only example confirms the verified-*-contracts

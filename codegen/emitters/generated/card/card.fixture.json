@@ -35,7 +35,9 @@
         "maxW": 120,
         "tokens": "default-tokens"
       }
-    ]
+    ],
+    "variant": "mobile",
+    "tokens": "default-tokens"
   },
   "layout": {
     "width": 300,
