@@ -160,33 +160,30 @@
 \\ === 4 theorems: min-width variants, gap arithmetic, figma reify, token fit ===
 \\ =====================================================================
 
+\\ Real body restored. These were all `-> true` with the arithmetic commented
+\\ out beneath them, so every "theorem" was a constant and the docs counted
+\\ them as proven. They compute now — in part because token-value works now.
 (define card-variants-respect-minimum-content-width
   {--> boolean}
-  -> true)
-  \\ (and (>= (variant-width mobile) 268)
-  \\       (>= (variant-width tablet) 268)
-  \\       (>= (variant-width desktop) 268)))
-
-(declare card-variants-respect-minimum-content-width [--> boolean])
+  -> (and (>= (variant-width mobile) 268)
+          (and (>= (variant-width tablet) 268)
+               (>= (variant-width desktop) 268))))
 
 (define title-and-actions-never-overflow-under-gap-token
   {--> boolean}
-  -> true)
-  \\ (let Gap (token-value default-tokens "space-2")
-  \\        ActionW 120
-  \\        TitleMax 268
-  \\        ActionsTotal (+ ActionW (+ Gap ActionW))
-  \\     (and (>= TitleMax ActionsTotal)
-  \\          true)))
+  -> (let Gap (token-value default-tokens "space-2")
+          ActionW 120
+          TitleMax 268
+          ActionsTotal (+ ActionW (+ Gap ActionW))
+       (>= TitleMax ActionsTotal)))
 
-(declare title-and-actions-never-overflow-under-gap-token [--> boolean])
-
+\\ NOTE: figma-card-matches is itself a stub returning true in this load path
+\\ (the real verify-figma is installed by card-spec.shen). This theorem is
+\\ therefore only as strong as that stub — labelled here rather than counted
+\\ as a proof of Figma fidelity.
 (define default-variant-figma-structural-match-reified
   {--> boolean}
-  -> true)
-  \\ (figma-card-matches "examples/card-design.json" mobile 2))
-
-(declare default-variant-figma-structural-match-reified [--> boolean])
+  -> (figma-card-matches "examples/card-design.json" mobile 2))
 
 \\ Token arithmetic across slots (new meaningful property theorem).
 \\ Proves using the live token-value and variant-width (same helpers used by
@@ -195,16 +192,12 @@
 \\ other protected components.
 (define action-pair-plus-gap-never-exceeds-tightest-variant
   {--> boolean}
-  -> true)
-  \\ (let Gap (token-value default-tokens "space-2")
-  \\        A1 120
-  \\        A2 120
-  \\        Total (+ A1 (+ Gap A2))
-  \\        Tightest (variant-width mobile)
-  \\     (and (<= Total Tightest)
-  \\          true)))
-
-(declare action-pair-plus-gap-never-exceeds-tightest-variant [--> boolean])
+  -> (let Gap (token-value default-tokens "space-2")
+          A1 120
+          A2 120
+          Total (+ A1 (+ Gap A2))
+          Tightest (variant-width mobile)
+       (<= Total Tightest)))
 
 \\ --- Top-level design fidelity claim for the Card spike ---
 \\ This theorem now *constructs* a verified-card using the high-level slot

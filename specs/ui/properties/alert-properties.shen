@@ -50,12 +50,20 @@
 
 \\ --- The verified Alert (the product type for the second protected component) ---
 
+\\ Side condition + data form, matching card-properties.shen. As
+\\ `(alert-obligation-satisfied ...) : verified` the premise was
+\\ undischargeable, and the conclusion named an (alert ...) application for
+\\ which no constructor existed — so the theorem below could never run.
 (datatype verified-alert
+  if (alert-obligation-satisfied Variant Tokens)
   Variant : alert-variant;
   Tokens : design-tokens;
-  (alert-obligation-satisfied Variant Tokens) : verified;
   ________________________________________________
-  (alert Variant Tokens) : verified-alert;)
+  [alert Variant Tokens] : verified-alert;)
+
+\\ Constructor, mirroring mk-card-* in card-properties.shen.
+(define mk-alert
+  Variant Tokens -> [alert Variant Tokens])
 
 \\ =====================================================================
 \\ === Property theorem (Gate 1/2 prove via tc+ acceptance) ===
@@ -68,15 +76,13 @@
 \\ lift pattern scales to additional protected components exactly as
 \\ intended, without touching emitter or runtime paths.
 
+\\ Executes the obligation rather than binding a construction and discarding
+\\ it. The previous body was (let TheAlert (alert info default-tokens)
+\\ (and true true)) — a call to a function that did not exist, wrapped around
+\\ a constant, in a file that had never parsed.
 (define alert-design-fidelity
   {--> boolean}
-  -> (let TheAlert (alert info default-tokens)
-       (and true true)))
-  \\ Construction of TheAlert discharges the verified-alert obligation under tc+ via lift.
-  \\ Trivial conjunction + construction = the proof that the scaling pattern holds.
-  \\ Gate 1 accepts this (illustrative contract only; see header).
-
-(declare alert-design-fidelity [--> boolean])
+  -> (alert-obligation-satisfied info default-tokens))
 
 \\ End of alert-properties.shen
 \\ This illustrative contract-only example confirms the verified-*-contracts

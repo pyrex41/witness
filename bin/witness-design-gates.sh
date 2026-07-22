@@ -95,7 +95,22 @@ CORE_FILES=(
   bin/witness-check.sh
   cli/measure.js
   cli/shen-check.js
+  cli/theorem-run.js
   cli/freerange-audit.js
+  # Everything below was OUTSIDE the TCB while being fully capable of disabling
+  # a gate. The specs in particular are how witness-core.shen was hollowed out
+  # to a comment-only stub without anything noticing for however long.
+  bin/witness-design-gates.sh
+  boot.js
+  lib/measure-core.js
+  codegen/emitters/card-emitter.js
+  tsconfig.json
+  specs/design/witness-core.shen
+  specs/design/load-order-trust.shen
+  specs/ui/tokens.shen
+  specs/ui/card-spec.shen
+  specs/ui/properties/card-properties.shen
+  specs/ui/properties/alert-properties.shen
 )
 
 # Embedded expected SHA-256 hashes for the TCB (current approved design state).
@@ -118,16 +133,21 @@ shen/dom.shen 3d8c6cfe989f942e4851b33596296f0d0abf49e7052a71c532d2d5080a17387b
 bin/witness-check.sh 46a9c68c1f33396255e3f37ca58977d3b08a9039326fc1377b0f958db933eed8
 cli/measure.js 8547998ca449c4ceb14a154576efb0efdd188f4b1652a29954c4981cea31e4d5
 cli/shen-check.js a7ae36ec28e5caac731f8315b097fccf48f23c802eeedbae778723f1ce155977
+cli/theorem-run.js 95af352c1988ee1097f7b62e15bb2a7b8badb2d60b253bca2e643480cd604b16
 cli/freerange-audit.js 810a11d34c08148265364ca42f06f1760d3a0d061334892272b079818ade3a3b
+bin/witness-design-gates.sh ba7df962bc4597f4f530267eb95c5d42d65be40e2cc96ab3b301f99be0935cc4
+boot.js 3e9741f28517140a5a96618b3bbe654ae565cd2433c09ce03fcb9b36df5b0079
+lib/measure-core.js de4b69323cc3786274d7e2e5a302e3e07d7eea98d4e718eeab4f64cb19d06bce
+codegen/emitters/card-emitter.js d857651e7919039993aa3f854c7a64b54d17c4ef9211410b34a66cf13daef285
+tsconfig.json 3143e710ee17579baf1991db8452bb869c019e02d8acf39f62ad3dee365e6686
+specs/design/witness-core.shen 2fe1197c9f273775e738bb3403e848ab0fd88dfa55e56532ec636bae6547c4ed
+specs/design/load-order-trust.shen c7c353813af921a08f9f87b450cac3e45ea2de377e9b54ae2327ecb8eedfb6f4
+specs/ui/tokens.shen b0723307b6f4536849db37daa84583fd68ea328530953e3ae9fd71f8c045758a
+specs/ui/card-spec.shen f346aca2844699f92c05f1e79845e58eb26b806e5e5ca601f7ad651eacb12506
+specs/ui/properties/card-properties.shen 1c6d18c894c68113bcb6e81aeded0dbdd6fa671456c7a1c79bffa077f937e089
+specs/ui/properties/alert-properties.shen 3c89d6a99a729c82cfd3264188e075ce2b11d98b5983240385429f520127c85a
 MANIFEST_EOF
 )
-# === END OF UPDATED BLOCK ===
-# After replacing, run the gates (full) to self-verify.
-# === END OF UPDATED BLOCK ===
-# After replacing, run the gates (full) to self-verify.
-# === END OF UPDATED BLOCK ===
-# After replacing, run the gates (full) to self-verify.
-# === END OF UPDATED BLOCK ===
 
 # Color setup (CI-safe: disabled when stdout is not a tty)
 setup_colors() {
@@ -154,6 +174,25 @@ get_sha256() {
     sha256sum "$file" | awk '{print $1}'
   else
     shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
+
+# This script is itself in the TCB, which creates a fixpoint problem: recording
+# its hash edits the manifest, which changes the hash. So hash the runner with
+# its manifest block ELIDED. Any other change to the runner — a weakened check,
+# a skipped gate, a new exemption — still moves the hash, which is the point.
+get_tcb_sha256() {
+  local file="$1"
+  if [ "$file" = "$SCRIPT_DIR/bin/witness-design-gates.sh" ]; then
+    local normalized
+    normalized=$(sed '/^FIDELITY_MANIFEST=\$(cat <<.MANIFEST_EOF./,/^MANIFEST_EOF$/d' "$file")
+    if command -v sha256sum >/dev/null 2>&1; then
+      printf '%s' "$normalized" | sha256sum | awk '{print $1}'
+    else
+      printf '%s' "$normalized" | shasum -a 256 | awk '{print $1}'
+    fi
+  else
+    get_sha256 "$file"
   fi
 }
 
@@ -221,18 +260,34 @@ run_gate_1() {
 
 run_gate_2() {
   local gate_start=$SECONDS
-  print_gate_header 2 "Property proofs (design theorems verified)"
-  echo "  witness-core.shen defines property theorems (tier-1-always-requires-literal, "
-  echo "  witness-core-design-fidelity, renderer-respects-overflow via the datatypes)."
-  echo "  Because Gate 1 successfully ran tc+ over the file that contains their (define ...) + (declare ...),"
-  echo "  the sequent-calculus proofs have been accepted by the type checker. This *is* the verification."
-  echo "  (Future: dedicated properties.shen + theorem runner execution + cross-checks against live renderers.)"
+  print_gate_header 2 "Property proofs (design theorems executed)"
+  echo "  Runs cli/theorem-run.js: discovers every nullary boolean theorem in"
+  echo "  specs/ui/properties/*.shen and EXECUTES it. A theorem that returns false"
+  echo "  fails the gate; so does one that errors; so does finding none at all."
   echo ""
-  # No additional runtime step needed for skeleton; the tc+ *is* the proof engine running the theorems.
-  # We could here append a call to (witness-core-design-fidelity) but it would require modifying the
-  # check.sh flow or a separate Shen invocation; the type acceptance is sufficient and robust.
+  echo "  This gate was previously two echo calls — no command, no exit code, no"
+  echo "  dependency on Gate 1 — so it passed on an empty checkout, and the three"
+  echo "  theorems its banner named did not exist anywhere in the repo."
+  echo ""
+
+  if ! node "$SCRIPT_DIR/cli/theorem-run.js"; then
+    echo ""
+    echo -e "${RED}✗ Gate 2 FAILED${NC}: a design theorem does not hold."
+    echo ""
+    echo -e "${YELLOW}Actionable fixes:${NC}"
+    echo "  1. The named theorem returned false — the property it asserts is no longer"
+    echo "     true of the contracts. Either the contract changed (fix the contract) or"
+    echo "     the property was wrong (fix or retire the theorem)."
+    echo "  2. If it ERRORED, the theorem calls something undefined in the tc- prelude;"
+    echo "     check specs/ui/properties/*.shen and shen/witness-sbcl.shen's load block."
+    echo "  3. Theorems are discovered by shape — a nullary (define name {--> boolean} ...)"
+    echo "     in specs/ui/properties/. Adding a component adds its theorems automatically."
+    echo ""
+    exit 1
+  fi
+
   local elapsed=$(( SECONDS - gate_start ))
-  echo -e "  ${GREEN}✓ Gate 2 passed${NC} (property theorems type-checked and proven under tc+) [${elapsed}s]"
+  echo -e "  ${GREEN}✓ Gate 2 passed${NC} (every discovered property theorem executed and holds) [${elapsed}s]"
   echo ""
 }
 
@@ -254,12 +309,16 @@ run_gate_3() {
       continue
     fi
     local actual
-    actual=$(get_sha256 "$full_path")
+    actual=$(get_tcb_sha256 "$full_path")
     # Portable lookup in the manifest (bash 3.2 compatible, no assoc arrays)
     local expected
     expected=$(printf '%s\n' "$FIDELITY_MANIFEST" | awk -v file="$f" '$1 == file {print $2; exit}')
     if [ -z "$expected" ]; then
-      echo -e "  ${YELLOW}? $f has no recorded expected hash (new TCB file?)${NC}"
+      # Previously a yellow "?" that did NOT set drift_detected — so adding a
+      # file to the TCB without a hash silently passed, which defeats the audit.
+      echo -e "  ${RED}✗ $f is in CORE_FILES but has no recorded hash${NC}"
+      echo "      Run --update-manifest and commit the result."
+      drift_detected=1
     elif [ "$actual" != "$expected" ]; then
       echo -e "  ${RED}✗ DRIFT: $f${NC}"
       echo "      Expected (approved design state): $expected"
@@ -638,7 +697,7 @@ print_update_manifest() {
     local full="$SCRIPT_DIR/$f"
     if [ -f "$full" ]; then
       local h
-      h=$(get_sha256 "$full")
+      h=$(get_tcb_sha256 "$full")
       echo "$f $h"
     fi
   done
