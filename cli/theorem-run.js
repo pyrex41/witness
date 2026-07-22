@@ -29,8 +29,16 @@ const repoRoot = path.join(__dirname, '..');
 const PRELUDE = ['.witness/measurements.shen', 'shen/witness-sbcl.shen'];
 const CONTRACT_DIRS = [path.join(repoRoot, 'specs', 'ui', 'properties')];
 
-// (define NAME\n  {--> boolean}  — nullary, so it can simply be called.
-const THEOREM_RE = /\(define\s+([A-Za-z][\w?!*<>=/+-]*)\s*\r?\n\s*\{\s*-->\s*boolean\s*\}/g;
+// (define NAME {--> boolean}  — a NULLARY boolean define, so it can simply be
+// called. Discovery is deliberately formatting-agnostic: the name and its
+// signature may sit on the same line or be split across lines, with any amount
+// of surrounding whitespace (\s matches newlines too). Nullarity is enforced
+// structurally by requiring `-->` to be the FIRST token inside the braces:
+// `{--> boolean}` has no argument types, whereas a boolean-returning function
+// with parameters spells them before the arrow (`{number --> boolean}`,
+// `{card-title-slot --> ... --> boolean}`) and therefore does NOT match — those
+// are not theorems and must not be discovered.
+const THEOREM_RE = /\(define\s+([A-Za-z][\w?!*<>=/+-]*)\s+\{\s*-->\s*boolean\s*\}/g;
 
 function discoverTheorems() {
   const found = [];

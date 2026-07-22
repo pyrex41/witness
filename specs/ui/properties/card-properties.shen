@@ -254,26 +254,35 @@
         default-tokens))
 
 \\ --- Top-level design fidelity claim for the Card spike ---
-\\ This theorem now *constructs* a verified-card using the high-level slot
-\\ constructors. tc+ acceptance therefore requires proving:
-\\   - (fits? ...) : verified for title and action slots (via card-*-slot sequents)
-\\   - (layout-obligations-satisfied ...) : verified
-\\   - (figma-card-matches ...) : verified
-\\   - (responsive-variants-proven ...) : verified
-\\ for the canonical Card data. The 4 sub-theorems (including token-arithmetic
-\\ claim) are also conjoined inside the body. This is what makes Gate 1 prove
-\\ *real* things about the Card (not just parse the spec).
-
+\\ This theorem COMPUTES fidelity from real work: it conjoins the executable
+\\ sub-obligations, each of which measures the canonical Card data or exercises
+\\ live token/variant arithmetic and returns false when a bound is broken. It is
+\\ NOT `-> true` and there is no verified-lift behind it.
+\\
+\\ Conjuncts (all defined above, all falsifiable):
+\\   - card-layout-obligations-hold: runs layout-obligations-satisfied over the
+\\       canonical slots — measures the title text against its bound AND that
+\\       bound against the mobile variant's content width, and the action row +
+\\       live space-2 gaps against that width. Widen a canonical slot's text or
+\\       shrink a variant width and it goes false.
+\\   - card-variants-respect-minimum-content-width: every variant width >= 268.
+\\   - action-pair-plus-gap-never-exceeds-tightest-variant: canonical action pair
+\\       + live space-2 gap fits the tightest (mobile) variant width.
+\\   - title-and-actions-never-overflow-under-gap-token: title bound covers the
+\\       action-row + gap arithmetic.
+\\
+\\ STUB BOUNDARY (deliberately NOT conjoined here): figma-card-matches and
+\\ responsive-variants-proven are stubs in this pure design-gate load path (the
+\\ real verify-figma is installed by card-spec.shen). Folding their `-> true`
+\\ into this claim would launder a stub into a fidelity proof, so they are
+\\ excluded. They ARE enforced as verified-card side conditions at construction
+\\ when card-spec.shen overrides them with the real implementations.
 (define card-design-fidelity
   {--> boolean}
-  -> true
-  \\ Construction of TheCard (and the four sub-theorems) would discharge all
-  \\ verified-card premises under tc+ via the individual slot datatypes +
-  \\ verified-lift. The conjunction + construction = the proof.
-  \\ For now the claim is accepted by tc+ (the individual theorems above
-  \\ are the real exercised content). This matches the style of the core
-  \\ design fidelity claims.
-)
+  -> (and (card-layout-obligations-hold)
+          (and (card-variants-respect-minimum-content-width)
+               (and (action-pair-plus-gap-never-exceeds-tightest-variant)
+                    (title-and-actions-never-overflow-under-gap-token)))))
 
 (declare card-design-fidelity [--> boolean])
 

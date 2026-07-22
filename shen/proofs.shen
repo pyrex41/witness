@@ -81,7 +81,15 @@
 (define proven-text
   Text Font MaxW -> [proven-cell Text Font MaxW])
 
-(declare proven-text [string --> [string --> [number --> safe-text]]])
+\\ proven-text is declared to return raw-cell, NOT safe-text. This severs the
+\\ curry/alias bypass: Shen curries application, so ((proven-text X) F W) and
+\\ (let P proven-text (P X F W)) reach the proven-text FUNCTION rather than
+\\ trust.shen's 3-args-in-one-form macro. When the function was declared to
+\\ return safe-text unconditionally, every such path forged safe-text with no
+\\ measurement. Now the function yields only raw-cell; the ONLY route to
+\\ safe-text is the [proven-cell ...] DATA form under the measuring rule below,
+\\ which the trust.shen macro produces for the advertised literal call form.
+(declare proven-text [string --> [string --> [number --> raw-cell]]])
 
 (define handled-text
   Text Font MaxW Overflow -> [handled-cell Text Font MaxW Overflow])
@@ -114,6 +122,26 @@
   Text : string; Font : string; MaxW : number;
   ______________________________________________
   [proven-cell Text Font MaxW] : safe-text;
+
+  \\ UNCONDITIONAL raw-cell rule — the type floor of the tagged cell.
+  \\
+  \\ This types the [proven-cell ...] structure WITHOUT proof, as raw-cell —
+  \\ a strictly weaker type than safe-text, and the return type the proven-text
+  \\ FUNCTION is declared to produce. It exists so the function body
+  \\ [proven-cell Text Font MaxW] type-checks (as raw-cell) while the function
+  \\ never yields safe-text. Every curried / aliased / higher-order way of
+  \\ reaching the function therefore lands in raw-cell, and a { --> safe-text }
+  \\ context rejects it — closing the curry bypass at the TYPE level, not just
+  \\ syntactically.
+  \\
+  \\ Crucially this does NOT weaken the legitimate path: when the goal is
+  \\ `[proven-cell ...] : safe-text` (the trust.shen macro's data form), only
+  \\ the conditional rule above concludes safe-text, so the measurement side
+  \\ condition still decides. raw-cell is never a route to safe-text — there is
+  \\ no rule coercing one into the other.
+  Text : string; Font : string; MaxW : number;
+  ______________________________________________
+  [proven-cell Text Font MaxW] : raw-cell;
 
   \\ Bounded string: string is known to be at most N chars.
   \\ Same correction — evaluated, so it now actually decides.

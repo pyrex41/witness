@@ -782,6 +782,23 @@ function buildBoundsFacts(parsedFiles) {
           });
           continue;
         }
+        // SOUNDNESS GATE 2b — an overflow-blamed ensures is suspect even with a
+        // finite domain word. freerange appends "(can overflow at SITE)" when
+        // the interval was computed through an operation it itself flagged as
+        // able to overflow; parseNumericProseText already peels that suffix into
+        // returnEnsures.blame, but the flag was parsed and never consulted, so a
+        // finite-domain interval carrying an overflow blame emitted as a hard
+        // (bounded Lo Hi) fact anyway. If the operation can overflow, the stated
+        // finite bounds are not something to vouch for — exclude it.
+        if (returnEnsures.blame && returnEnsures.blame.kind === 'overflow') {
+          excluded.push({
+            function: fn.name,
+            file: fileBlock.file,
+            reason: 'overflow-blamed',
+            site: returnEnsures.blame.site,
+          });
+          continue;
+        }
         if (
           returnEnsures.lower === null ||
           returnEnsures.upper === null ||
@@ -792,6 +809,24 @@ function buildBoundsFacts(parsedFiles) {
             function: fn.name,
             file: fileBlock.file,
             reason: 'open-or-unbounded-interval',
+            lower: jsonNumber(returnEnsures.lower),
+            upper: jsonNumber(returnEnsures.upper),
+          });
+          continue;
+        }
+        // SOUNDNESS GATE 3 — reject an inverted interval (lower > upper). Both
+        // bounds are finite here (open-or-unbounded gate above), so the
+        // comparison is well-defined. An inverted range is EMPTY: no value
+        // satisfies it, so `(bounded Lo Hi)` with Lo > Hi is not a conservative
+        // bound but a false statement — and worse, it would let a fits?-style
+        // "worst case <= MaxW" obligation discharge vacuously. Fed an inverted
+        // range (e.g. "from 200 through 100"), the bridge previously emitted
+        // `(bounded 200 100)`; now it excludes it instead.
+        if (returnEnsures.lower > returnEnsures.upper) {
+          excluded.push({
+            function: fn.name,
+            file: fileBlock.file,
+            reason: 'inverted-interval',
             lower: jsonNumber(returnEnsures.lower),
             upper: jsonNumber(returnEnsures.upper),
           });
@@ -888,7 +923,10 @@ function renderShenFile(facts, excluded, sourcePaths, generatorInvocation) {
           .map(
             (e) =>
               `\\\\   ${e.function} (${e.file}): ${e.reason}` +
-              (e.reason === 'open-or-unbounded-interval' ? ` [${e.lower}, ${e.upper}]` : '')
+              (e.reason === 'open-or-unbounded-interval' || e.reason === 'inverted-interval'
+                ? ` [${e.lower}, ${e.upper}]`
+                : '') +
+              (e.reason === 'overflow-blamed' && e.site ? ` (can overflow at ${e.site})` : '')
           )
           .join('\n') +
         '\n';

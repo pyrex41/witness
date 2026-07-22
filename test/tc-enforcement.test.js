@@ -94,6 +94,47 @@ async function main() {
   r = await checkSource('(define tc-case { string --> safe-text } X -> (proven-text X "14px sans-serif" 100))\n');
   check('dynamic first argument is rejected', !r.ok && /literal string/.test(r.error || ''), r.error);
 
+  // ------------------------------------------------------------------------
+  // Curry / partial application / aliasing cannot forge safe-text.
+  //
+  // Shen curries application, so ((proven-text X) F W), (((proven-text X) F) W)
+  // and (let P proven-text (P X F W)) reach the proven-text FUNCTION instead of
+  // trust.shen's macro (which matches only the 3-args-in-one-form). When the
+  // function was declared to return safe-text unconditionally, every one of
+  // these forged a safe-text with NO measurement — a 77.36px title in a 5px box
+  // compiled clean. The fix declares proven-text : { ... --> raw-cell } and adds
+  // an unconditional [proven-cell ...] : raw-cell rule, so the function (and thus
+  // every curried/aliased path) yields raw-cell, which a { --> safe-text } context
+  // rejects. safe-text remains reachable ONLY via the measuring rule on the data
+  // form the macro produces. These cases lock the bypass shut forever.
+  console.log('\nCurry / partial application / aliasing cannot forge safe-text:');
+
+  r = await checkSource('(define tc-case { --> safe-text } -> ((proven-text "Card Title") "18px sans-serif" 5))\n');
+  check('single-step curry is rejected (77>5)', !r.ok, 'it compiled — curry forged safe-text');
+
+  r = await checkSource('(define tc-case { --> safe-text } -> (((proven-text "Card Title") "18px sans-serif") 5))\n');
+  check('fully-curried application is rejected', !r.ok, 'it compiled — curry forged safe-text');
+
+  r = await checkSource('(define tc-case { string --> safe-text } X -> ((proven-text X) "14px sans-serif" 5))\n');
+  check('dynamic-first-arg curry is rejected', !r.ok, 'it compiled — curry forged safe-text');
+
+  r = await checkSource('(define tc-case { --> safe-text } -> (let P proven-text (P "Card Title" "18px sans-serif" 5)))\n');
+  check('aliasing via let is rejected', !r.ok, 'it compiled — alias forged safe-text');
+
+  // Currying is NEVER safe: even a value that would fit (Save @14px = 31.91px <= 32)
+  // must be rejected in curried form, because the curried path bypasses the
+  // measuring rule entirely — it never earns safe-text, fit or not.
+  r = await checkSource('(define tc-case { --> safe-text } -> ((proven-text "Save" "14px sans-serif") 32))\n');
+  check('curried form rejected even when text fits (32)', !r.ok, 'it compiled — curry is not a proof');
+
+  r = await checkSource('(define tc-case { --> safe-text } -> ((proven-text "Save" "14px sans-serif") 31))\n');
+  check('curried form rejected when text overflows (31)', !r.ok, 'it compiled — curry is not a proof');
+
+  // The escape hatch (handled-text / handled-cell) has the same tagged shape but
+  // no proof obligation — currying it is fine and must keep working.
+  r = await checkSource('(define tc-case { --> safe-text } -> ((handled-text "any long text" "18px sans-serif") 5 ellipsis))\n');
+  check('currying handled-text stays allowed (escape hatch)', r.ok, r.error);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }

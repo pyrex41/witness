@@ -3,7 +3,7 @@
 \\ Generator:  cli/freerange-audit.js
 \\ Invocation: node cli/freerange-audit.js codegen/emitters/generated/card/card-layout.ts --emit-shen specs/generated/numeric-bounds.shen
 \\ Source(s):  codegen/emitters/generated/card/card-layout.ts
-\\ Generated:  2026-07-22T15:44:31.558Z
+\\ Generated:  2026-07-22T18:03:17.015Z
 \\
 \\ Regenerate with:
 \\   node cli/freerange-audit.js codegen/emitters/generated/card/card-layout.ts --emit-shen specs/generated/numeric-bounds.shen

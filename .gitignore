@@ -1,5 +1,11 @@
 node_modules/
 *.log
 .DS_Store
-.witness/
+# .witness/ holds the Pretext measurement cache. The cache is the oracle every
+# fits? obligation is discharged against, so measurements.shen is COMMITTED (a
+# checked-in proof artifact, like a lockfile): a fresh clone must have it or the
+# proof prelude in cli/shen-check.js / cli/theorem-run.js dies with ENOENT and no
+# design gate can be green. Regenerate with `node cli/measure.js specs/ui/card-spec.shen`.
+.witness/*
+!.witness/measurements.shen
 .claude/

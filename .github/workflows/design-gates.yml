@@ -33,6 +33,23 @@ jobs:
       - name: npm install
         run: npm install
 
+      # The Pretext measurement cache (.witness/measurements.shen) is a COMMITTED
+      # proof artifact — the oracle every fits? obligation is discharged against.
+      # It is checked into the repo (see .gitignore), so a bare checkout already
+      # has it and the gates need NO measurement step: cli/shen-check.js and
+      # cli/theorem-run.js load it directly under (tc -). This step only asserts
+      # its presence, so if it is ever re-ignored or dropped the failure is a
+      # clear message here instead of an opaque ENOENT deep inside Gate 1.
+      - name: Verify measurement cache is present (committed oracle)
+        run: |
+          test -f .witness/measurements.shen || {
+            echo "::error::.witness/measurements.shen missing from checkout."
+            echo "It is a committed proof artifact. Regenerate and commit it:"
+            echo "  node cli/measure.js specs/ui/card-spec.shen"
+            exit 1
+          }
+          echo "measurement cache present:"; cat .witness/measurements.shen
+
       # Was `--quick` (Gates 1+2 only) — i.e. the two gates that were vacuous:
       # Gate 1 type-checked comment-only stubs and Gate 2 was two echo calls.
       # Every push and PR was therefore gated on nothing. The full suite runs in
@@ -82,6 +99,17 @@ jobs:
 
       - name: npm install
         run: npm install
+
+      # Same committed-oracle assertion as the fast job: the native kernel path
+      # (bin/witness-check.sh) also loads .witness/measurements.shen directly.
+      - name: Verify measurement cache is present (committed oracle)
+        run: |
+          test -f .witness/measurements.shen || {
+            echo "::error::.witness/measurements.shen missing from checkout."
+            echo "It is a committed proof artifact. Regenerate and commit it:"
+            echo "  node cli/measure.js specs/ui/card-spec.shen"
+            exit 1
+          }
 
       - name: Run full design gates on the native Shen kernel (cross-check)
         run: npm run design-gates:full
