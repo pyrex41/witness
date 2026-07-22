@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # docs/freerange-demo.sh
 #
-# 60-second tour of the Witness × freerange composition (Gate 5).
+# 60-second tour of the Witness × freerange composition (Gate 4).
 #
 # Usage (from repo root):
 #   bash docs/freerange-demo.sh
@@ -31,7 +31,7 @@ fi
 
 # freerange resolves its tsconfig from cwd, not from the target file. The
 # deliberately-failing examples are excluded from the project tsconfig, so they
-# are analyzed standalone from a neutral directory (same trick Gate 5 uses).
+# are analyzed standalone from a neutral directory (same trick Gate 4 uses).
 fr_standalone() {
   local target="$SCRIPT_DIR/$1"
   local neutral
@@ -50,7 +50,7 @@ echo ""
 echo -e "  ${CYAN}Shen${NC}      proves the design      (specs/ui/properties/*.shen)"
 echo -e "  ${CYAN}emitter${NC}   projects each obligation into console.assert(...)"
 echo -e "  ${CYAN}freerange${NC} proves no call site violates one, and proves the"
-echo -e "            postconditions hold                       ← Gate 5"
+echo -e "            postconditions hold                       ← Gate 4"
 echo ""
 
 echo -e "${BOLD}── 1. The math that ships ─────────────────────────────────────────────${NC}"
@@ -99,13 +99,12 @@ fi
 echo ""
 
 echo -e "${BOLD}── 4. The same check, as a gate ───────────────────────────────────────${NC}"
-echo "Gate 5 runs freerange over the whole project AND runs a deliberately-broken"
+echo "Gate 4 runs freerange over the whole project AND runs a deliberately-broken"
 echo "fixture that it expects to fail — a gate that cannot fail is not a gate."
 echo ""
-echo -e "  ${CYAN}./bin/witness-design-gates.sh --gate 5${NC}          # ~1s"
-echo -e "  ${CYAN}./bin/witness-design-gates.sh --gate 5 --audit${NC}  # + the Shen bounds bridge"
+echo -e "  ${CYAN}./bin/witness-design-gates.sh --gate 4${NC}          # ~1s"
 echo -e "  ${CYAN}npm run gates${NC}                                   # all five"
 echo ""
-echo "The generated module Gate 5 protects: codegen/emitters/generated/card/card-layout.ts"
+echo "The generated module Gate 4 protects: codegen/emitters/generated/card/card-layout.ts"
 echo "Its console.asserts are projected from the Shen theorems, one comment each."
 echo ""

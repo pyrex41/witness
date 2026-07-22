@@ -143,13 +143,6 @@
   ______________________________________________
   [proven-cell Text Font MaxW] : raw-cell;
 
-  \\ Bounded string: string is known to be at most N chars.
-  \\ Same correction — evaluated, so it now actually decides.
-  if (>= N (string-length S))
-  S : string; N : number;
-  ______________________________________________
-  S : (bounded N);
-
   \\ Handled text: developer explicitly chose an overflow strategy
   \\ No proof required — this is the escape hatch.
   \\ MaxW declares the container width the text is rendered into:
@@ -166,55 +159,3 @@
   ___ clip : overflow;
   ___ visible : overflow;)
 
-\\ =====================================================================
-\\ === Tier 2 (numeric half): (bounded Lo Hi) — freerange range oracle ===
-\\ =====================================================================
-\\
-\\ APPENDED, ADDITIVE BLOCK. Nothing above this comment is touched —
-\\ layout-proofs and overflow-types are unchanged. shen/proofs.shen is in
-\\ the gate runner's TCB hash manifest (bin/witness-design-gates.sh's
-\\ CORE_FILES), so this addition is deliberately a *new* datatype rather
-\\ than an edit to the existing rules.
-\\
-\\ `(bounded Lo Hi)` is a DIFFERENT type from the `(bounded N)` rule above
-\\ (a 2-argument shape of the same head symbol `bounded`, vs. that rule's
-\\ 1-argument shape over string-length) — Shen's sequent matcher dispatches
-\\ structurally on the type term, so the two coexist without collision.
-\\
-\\ Where `(bounded N)` answers "is this string at most N chars?" (checked
-\\ against a live string value), `(bounded Lo Hi)` answers "is this number
-\\ known, for EVERY value a caller can produce, to lie in [Lo, Hi]?" — the
-\\ interval-arithmetic half of Tier 2 the README called "declared, not
-\\ wired". The oracle for Lo/Hi is external: cli/freerange-audit.js runs
-\\ `fr --audit` (@chenglou/freerange) over generated numeric layout code
-\\ and, for functions it can fully and soundly analyze, emits closed-
-\\ interval facts (`fr-bound-*`) into specs/generated/numeric-bounds.shen.
-\\ Lo/Hi below are typically read from one of those facts, not hand-typed.
-\\
-\\ HONEST LIMITATION: freerange is NUMBERS ONLY. This wires bounded
-\\ numeric WIDTHS and COUNTS (e.g. a generated card-layout.ts function's
-\\ return value). It does NOT wire bounded STRINGS / max-chars — that is
-\\ still, and only, the pre-existing `S : (bounded N)` rule above; nothing
-\\ here changes what that rule can prove, and freerange has nothing to say
-\\ about strings at all.
-
-(datatype numeric-range-proofs
-
-  \\ A number W known to satisfy Lo <= W <= Hi carries (bounded Lo Hi).
-  \\ Both comparisons are `if` side conditions, so the type checker
-  \\ EVALUATES them. Written as `: verified` assertions (as they were),
-  \\ they were undischargeable and the rule fired for nothing.
-  if (and (<= Lo W) (<= W Hi))
-  W : number; Lo : number; Hi : number;
-  ________________________________________________
-  W : (bounded Lo Hi);
-
-  \\ Worst-case discharge: a fits?-style obligation against a RANGE rather
-  \\ than a single value. If W is (bounded Lo Hi) and even the worst case
-  \\ (Hi) is <= MaxW, then W <= MaxW for every value the caller can
-  \\ produce. Lo is threaded through so the conclusion names the whole
-  \\ witness; it plays no part in this upper-bound discharge.
-  if (<= Hi MaxW)
-  W : (bounded Lo Hi); MaxW : number;
-  ________________________________________________
-  [bound-fits Hi MaxW] : verified;)

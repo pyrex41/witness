@@ -45,8 +45,6 @@ See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [
 | SSR renderer → static HTML | works |
 | Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
 | `witness agent` widen-fix loop | works — **note it rewrites your `.shen` files in place**, with no `--dry-run` |
-| `(bounded N)` for numeric layout params (widths, counts) | **half-wired** — `fr --audit` → `cli/freerange-audit.js` → `specs/generated/numeric-bounds.shen` produces interval facts that type-check under `tc+`, but nothing loads that file yet, so the `(bounded Lo Hi)` rule still has no live consumer |
-| `(bounded N)` for strings — worst-case `max-chars` | still declared, not wired — freerange is numbers-only, doesn't reach text |
 | DOM runtime (`run-app`, TEA) | library exists; browser harness TBD |
 
 ---

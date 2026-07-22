@@ -510,29 +510,6 @@ run_gate_4() {
   echo -e "  ${GREEN}✓ negative fixture correctly rejected${NC}"
   echo ""
 
-  # --- Opt-in --audit sub-mode: Track C's freerange-audit bridge (cli/freerange-audit.js). ---
-  if [ "${GATE5_AUDIT:-false}" = true ]; then
-    echo "  --audit: running the freerange-audit bridge..."
-    local audit_script="$SCRIPT_DIR/cli/freerange-audit.js"
-    if [ ! -f "$audit_script" ]; then
-      echo -e "  ${YELLOW}⚠ cli/freerange-audit.js does not exist yet -- skipping --audit sub-mode.${NC}"
-    else
-      local audit_targets=()
-      [ -f "$SCRIPT_DIR/codegen/emitters/generated/card/card-layout.ts" ] && \
-        audit_targets+=("codegen/emitters/generated/card/card-layout.ts")
-      [ -f "$SCRIPT_DIR/codegen/emitters/generated/card/Card.tsx" ] && \
-        audit_targets+=("codegen/emitters/generated/card/Card.tsx")
-      if [ ${#audit_targets[@]} -eq 0 ]; then
-        echo -e "  ${YELLOW}⚠ no emitted TS artifacts found to audit yet -- skipping --audit sub-mode.${NC}"
-      else
-        if ! (cd "$SCRIPT_DIR" && node "$audit_script" "${audit_targets[@]}") 2>&1 | sed 's/^/  /'; then
-          fail_gate 4 "cli/freerange-audit.js reported an error (see output above); the bridge is documented as non-fatal, so this indicates a real problem worth a look."
-        fi
-        echo -e "  ${GREEN}✓${NC} freerange-audit bridge ran cleanly."
-      fi
-    fi
-    echo ""
-  fi
 
   local elapsed=$(( SECONDS - gate_start ))
   echo -e "  ${GREEN}✓ Gate 4 passed${NC} (freerange clean over the project + negative fixture correctly rejected) [${elapsed}s]"
@@ -553,7 +530,6 @@ Options:
   --quick           Run Gates 1 + 2 only (skip TCB audit + emitter + freerange). Fast for inner dev loop.
   --full            Run all five gates (default).
   --emit            When running Gate 3, also write the emitted Card.tsx + card.css to codegen/emitters/generated/card/
-  --audit           Opt-in sub-mode for Gate 4: also runs Track C's cli/freerange-audit.js bridge
                     over the emitted layout TS (skips gracefully with a note if that file doesn't exist yet).
   -h, --help        Show this help.
 
@@ -564,7 +540,6 @@ Examples:
   ./bin/witness-design-gates.sh --gate 3
   ./bin/witness-design-gates.sh --emit --gate 3
   ./bin/witness-design-gates.sh --gate 4
-  ./bin/witness-design-gates.sh --gate 4 --audit
 
 This runner is the enforcement mechanism for the self-hosting design specs.
 It will be wired into CI, the witness agent loop, and future Ralph-style autonomous evolution loops
@@ -584,7 +559,6 @@ setup_colors
 GATE_SPEC=""
 MODE="full"
 EMIT=false
-GATE5_AUDIT=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -603,10 +577,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --emit)
       EMIT=true
-      shift
-      ;;
-    --audit)
-      GATE5_AUDIT=true
       shift
       ;;
     -h|--help)
@@ -676,7 +646,6 @@ echo "  npm run gates -- --quick"
 echo "  ./bin/witness-design-gates.sh --gate 3      # emitter fidelity only"
 echo "  ./bin/witness-design-gates.sh --emit --gate 3   # regenerate emitted artifacts + check"
 echo "  ./bin/witness-design-gates.sh --gate 4       # freerange numeric-range enforcement only"
-echo "  ./bin/witness-design-gates.sh --gate 4 --audit  # + Track C's freerange-audit bridge (opt-in)"
 echo "  ./bin/witness-design-gates.sh --gate audit   # quick TCB drift check"
 echo ""
 echo "To strengthen backpressure further:"

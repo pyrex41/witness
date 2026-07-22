@@ -30,7 +30,6 @@ Everything above the line exists and works. We write the glue.
 | Tier 1 — `assert-fits` load-time proof | ✅ works | `shen/proofs.shen`; throws during `$.load` |
 | Tier 1 — `proven-text` sequent calculus under `tc+` | ✅ works | Requires static text, font, bound |
 | Tier 1 — `handled-text` escape hatch (ellipsis/clip/visible) | ✅ works | Overflow CSS emitted by SSR + DOM renderers |
-| Tier 2 — bounded numeric widths/counts (`(bounded N)`, numeric) | ✅ wired | `fr --audit` (freerange) → `cli/freerange-audit.js` → `specs/generated/numeric-bounds.shen`; Gate 5, see `specs/design/README.md` |
 | Tier 2 — bounded-string worst-case proofs (`max-chars`, text length) | 🚧 planned | still not wired to `assert-fits` — freerange is numbers-only, doesn't reach strings |
 | Tier 3 — Figma structural diff (library) | 🚧 **WIP** | `shen/figma.shen` works on hand-crafted fixtures; not yet validated against real Figma REST API exports |
 | Tier 3 — Figma CLI (`witness check --figma`) | 🚧 **WIP** | End-to-end works on demo fixtures; see WIP note above |
@@ -238,7 +237,7 @@ measurements before the app ever runs. This is true compile-time rejection.
   S : string; N : number;
   (>= N (string-length S)) : verified;
   ______________________________________________
-  S : (bounded N);
+  S : safe-text;  \\ (the (bounded N) sketch was removed — it had no consumer)
 
   \\ Handled text: developer explicitly chose an overflow strategy.
   \\ MaxW is the declared container width (carried through to CSS).
@@ -613,7 +612,7 @@ Actual lines by module. Planned estimates from the original sketch are shown for
 | `witness.shen` | Loader | ~10 | 17 |
 | **Total Shen** | | **~700** | **1659** |
 
-JS: `boot.js` 267, `lib/measure-core.js` 184, `cli/check.js` 314, `cli/shen-check.js` 133, `cli/theorem-run.js` 115, `cli/measure.js` 138, `cli/agent.js` 219, `cli/freerange-audit.js` 1018, `cli/verify.js` 45. **2433 lines total.** (Plus ~1,300 lines of codegen emitter and ~1,900 lines of gate tooling, which this table has never counted.)
+JS: `boot.js` 267, `lib/measure-core.js` 184, `cli/check.js` 314, `cli/shen-check.js` 133, `cli/theorem-run.js` 115, `cli/measure.js` 138, `cli/agent.js` 219, `cli/verify.js` 45. **~1,400 lines total.** (Plus ~1,300 lines of codegen emitter and ~1,900 lines of gate tooling, which this table has never counted.)
 
 ---
 

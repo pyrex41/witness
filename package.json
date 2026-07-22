@@ -17,7 +17,7 @@
     "witness-spec-init": "./bin/witness-spec-init.js"
   },
   "scripts": {
-    "test": "node test/smoke.js && node test/cli.test.js && node test/layout.test.js && node test/proofs.test.js && node test/tc-enforcement.test.js && node test/freerange-audit.test.js && node test/trust.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
+    "test": "node test/smoke.js && node test/cli.test.js && node test/layout.test.js && node test/proofs.test.js && node test/tc-enforcement.test.js && node test/trust.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
     "smoke": "node test/smoke.js",
     "test:cli": "node test/cli.test.js",
     "test:geometry": "node test/geometry.test.js",
