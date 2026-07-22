@@ -106,10 +106,10 @@ Textura              — Pretext + Yoga: full DOM-free layout
   └─ Yoga WASM       — Facebook's flexbox engine (React Native)
 freerange            — static numeric range analyzer, checks generated TS arithmetic
 ──────────────────────────────────────────────────────────────
-Witness              — ~1.7k lines Shen + ~2.4k lines JS (runtime + CLI)
+Witness              — ~1.6k Shen + ~1.4k JS (runtime + CLI) + emitter + gates
 ```
 
-Everything above the line exists and works. Witness itself is ~1,660 lines of Shen (proofs, layout bridge, errors, figma diff, SSR + DOM renderers, tailwind macro, TEA runtime) plus ~2,430 lines of JS (ShenScript/Textura interop, the measurement oracle, CLI commands, agent loop), ~1,300 lines of codegen emitter, and ~1,900 lines of gate tooling.
+Everything above the line exists and works. Witness itself is ~1,630 lines of Shen (proofs, trust macro, layout bridge, errors, figma diff, SSR + DOM renderers, tailwind macro, TEA runtime) plus ~1,410 lines of JS runtime + CLI (ShenScript/Textura interop, the measurement oracle, the checker, the agent loop), ~1,280 lines of codegen emitter, and ~1,260 lines of gate tooling.
 
 ### Why each piece matters
 
@@ -242,34 +242,42 @@ Today these map to `node cli/check.js <command>` and `node cli/agent.js`.
 
 ```
 witness/
-├── boot.js                 # ShenScript + Textura + DOM interop
+├── boot.js                 # ShenScript + Textura interop
+├── lib/
+│   └── measure-core.js     # the single measurement oracle (Pretext, font policy)
 ├── shen/
-│   ├── witness.shen        # loads everything
-│   ├── proofs.shen         # layout proof datatypes
+│   ├── witness.shen        # loads everything (browser/runtime path)
+│   ├── witness-sbcl.shen   # prelude for the proof/checker path
+│   ├── proofs.shen         # layout proof datatypes (fits? side conditions)
+│   ├── trust.shen          # read-time literal gate on proven-text
 │   ├── layout.shen         # node types + Textura bridge, overflow → CSS
+│   ├── props.shen          # prop-spec boundary enforcement
+│   ├── responsive.shen     # per-variant proofs
 │   ├── tea.shen            # TEA runtime: Model/Update/View
-│   ├── dom.shen            # DOM renderer (browser)
-│   ├── ssr.shen            # SSR renderer (Node → static HTML)
+│   ├── ssr.shen / dom.shen # renderers (static HTML / browser DOM)
 │   ├── tailwind.shen       # defcc grammar for tw macro
 │   ├── errors.shen         # structured JSON error construction
 │   └── figma.shen          # structural diff against Figma exports
 ├── cli/
 │   ├── check.js            # dev / build / check / render / measure
-│   ├── verify.js           # standalone Figma structural diff wrapper
-│   └── agent.js            # agent self-correction loop
-└── examples/
-    ├── card.shen
-    ├── card-overflow.shen
-    └── counter.shen
+│   ├── shen-check.js       # in-process tc+ checker (Gate 1 engine)
+│   ├── theorem-run.js      # executes design theorems (Gate 2)
+│   ├── measure.js          # writes the measurement cache
+│   ├── agent.js            # widen-fix agent loop
+│   └── verify.js           # standalone Figma diff
+├── codegen/emitters/
+│   └── card-emitter.js     # Shen contract → Card.tsx / css / layout.ts
+├── bin/witness-design-gates.sh   # the four-gate runner
+└── examples/               # card.shen, card-overflow.shen, counter.shen, ts/
 ```
 
-~1,660 lines of Shen. ~2,430 lines of JS runtime + CLI. ~1,300 lines of emitter. ~1,900 lines of gate tooling.
+~1,630 lines of Shen. ~1,410 lines of JS runtime + CLI. ~1,280 lines of emitter. ~1,260 lines of gate tooling.
 
 ---
 
-## Design Backpressure & Gates (sb-style self-hosting)
+## Design gates (self-hosting)
 
-Witness now has its own **sb-shen-backpressure-style gate system** to protect its evolution.
+Witness runs its own proof machinery on its own contracts — four gates that make design drift a build failure, the same way layout overflow is a build failure for users.
 
 > **🚀 Try the protected Card workflow in 60 seconds**
 >
@@ -277,9 +285,9 @@ Witness now has its own **sb-shen-backpressure-style gate system** to protect it
 > bash docs/card-protected-demo.sh
 > ```
 >
-> Runs Gate 4 (high-level `verified-card` emitter fidelity via the live `(card-contract-shape)` descriptor + `fidelityChecks[]` + `tsc --noEmit`) + the rich `witness loop --gate 4 --dry-run` experience. The fastest 60-second way to feel the modern tighter-coupling backpressure on the Card contracts.
+> Runs Gate 3 (emitter fidelity: the live `(card-contract-shape)` descriptor drives the emitter, output is diffed against what's committed, `fidelityChecks[]` run against the contract, `tsc`, and a semantic Yoga check). The fastest way to see the self-hosting gates on the Card contracts.
 
-The system has moved from "rough but promising" to a solid, intentional self-hosting backpressure platform:
+The four gates:
 
 - High-level contracts (`verified-card`, slots) are proven by Gate 1: `specs/design/witness-core.shen` constructs the canonical Card, which forces the type checker to evaluate each slot's `if (fits? ...)` side condition against a real Pretext measurement. Shrink a slot's bound below its measured width and Gate 1 goes red.
 - Gate 2 executes every property theorem it discovers and requires each to return true.
@@ -289,7 +297,7 @@ The system has moved from "rough but promising" to a solid, intentional self-hos
 
 > **A note on how these gates got here.** Every one of the claims above was
 > false at some point in this project's life, in ways nothing detected: Gate 1
-> type-checked two comment-only files, Gate 2 was two `echo` calls, Gate 4's
+> type-checked two comment-only files, Gate 2 was two `echo` calls, the emitter's
 > semantic check passed a 500-character title, the emitter ran on hardcoded
 > fallbacks because its Shen descriptor had never loaded, and the ruler measured
 > at 10px because a canvas silently rejects CSS font shorthand with a
@@ -350,7 +358,7 @@ As we build the larger system, the same proof machinery that protects *your* com
 
 ## What Witness is not building (v1)
 
-- A JS code emitter (ShenScript is the runtime)
+- A general-purpose JS runtime emitter (ShenScript is the runtime; the codegen emitter is Card-specific, projecting Shen contracts to typed React)
 - Canvas / WebGL / PixiJS renderers (DOM only; Textura's `{x,y,w,h}` output makes this trivial to add later)
 - A module system (use Shen's `load`)
 - Pixel-perfect screenshot diffing (structural position/size diff only)
