@@ -7,7 +7,7 @@ The goal is self-hosting backpressure: as we evolve Witness (especially while bu
 ## Philosophy (directly modeled on sb-shen-backpressure)
 
 - Specs in `specs/design/*.shen` are the single source of truth for key invariants.
-- The existing Witness proof system (`fits?`, `measure` via Pretext, `layout-proofs`, `trust` macro, two-phase check with `shen-cl` (preferred) or `shen-sbcl` + `tc+`, Figma structural diff, etc.) acts as the oracle.
+- The existing Witness proof system (`fits?`, `measure` via Pretext, `layout-proofs`, `trust` macro, two-phase check with the in-process ShenScript engine + `tc+`, Figma structural diff, etc.) acts as the oracle.
 - **Gates** (run via `npm run gates` or `bin/witness-design-gates.sh`) enforce fidelity:
   1. `tc+` on the design specs (Gate 1 — catches broken claims in the spec).
   2. Execution of property proofs / cross-checks against the implementation.
@@ -75,27 +75,23 @@ Any violation becomes a hard failure (type error or overflow) before you can shi
 
 - **Gate 1: tc+ Design Specs** — Runs `witness-check.sh` on every `*.shen` in `specs/design/`. Catches broken datatypes, unprovable `:verified` premises, or invariants that no longer hold in the live implementation.
 
-  > **Scope caveat — read this before trusting Gate 1.** `witness-core.shen` was reduced to a
-  > stub and no longer loads `specs/ui/properties/*.shen`, so Gate 1 currently type-checks only
-  > `witness-core.shen` and `load-order-trust.shen` — *not* the Card contracts or the four
-  > property theorems. Gate 4 is what actually exercises `card-properties.shen` (it loads it
-  > directly, under `tc-`, and now drives the emitter from the live `(card-contract-shape)`).
+  > **How to check it is not vacuous.** Gate 1's payload is
+  > `specs/design/witness-core.shen`, which constructs the canonical Card. Those
+  > constructions force the type checker to evaluate each contract's `if`
+  > side condition against a real Pretext measurement. To prove the gate can
+  > fail: shrink the title's bound in that file from 268 to 50 (the text measures
+  > 77.36px) and re-run `--gate 1`. It must fail with a type error naming the
+  > definition.
   >
-  > Bringing the Card contracts under Gate 1 needs one unresolved design decision:
-  > under `tc+` every `define` requires an inline `{...}` signature, and giving `mk-card-title`
-  > / `mk-card-desc` / `mk-card-action` a signature returning `card-title-slot` etc. would let
-  > the constructor claim that type *without* the `fits?` premise — weakening the exact
-  > obligation the datatype exists to enforce. The constructors need a raw return type with the
-  > refined type granted only by the datatype rule. Until that is settled, do not assume a green
-  > Gate 1 covers the component contracts.
+  > This file was previously 20 lines of comments and nothing else, and Gate 1
+  > passed while reporting "all :verified premises proven by real measurements".
+  > If it ever returns to being inert, the gate becomes decoration again.
   >
-  > Two `tc+` rules worth knowing when you do settle it: `(declare F Type)` **evaluates** its
-  > type argument, so list types must be written `[list X]` rather than `(list X)`; and a
-  > redundant `(declare ...)` following an inline-signed `define` is itself a type error.
-- **Gate 2: Property Proofs** — The theorems (`tier-1-always-requires-literal`, `witness-core-design-fidelity`, `renderer-contract`, `card-design-fidelity`, etc.) are proven by the successful `tc+` of their defining file. The type checker *is* the proof engine.
-- **Gate 3: Regeneration / TCB Audit** — SHA-256 of the core TCB (`shen/witness.shen`, `trust.shen`, `layout.shen`, `proofs.shen`, `witness-sbcl.shen` (loader for `shen-cl` or `shen-sbcl`), renderers `ssr.shen`/`dom.shen`, `bin/witness-check.sh`, `cli/measure.js`) vs the committed manifest embedded in the runner. Fails on any drift. Directly analogous to sb-shen-backpressure's Gate 5 `tcb-audit`.
-- **Gate 4: Emitter Fidelity** — Auto-discovers `codegen/emitters/*-emitter.js`, runs each emitter on its spec/contracts (high-level verified-* walk), enforces the checks declared in the emitter's `fidelityChecks[]` export (brands, factories, tokens, semantic CSS, richer targets, etc.), and (new) runs `tsc --noEmit` (shim + temp tsconfig) on every emitted `*.tsx`. The Card emitter (`card-emitter.js`) is the seed; adding components is now turnkey (`witness spec-init`) + the tiny generic loader + the convention (no edits to any gate runner). The new tools + Gate 4 auto-discovery make the whole experience one-command for 80 % of the work. Protects the codegen bridge itself, stronger than before.
-- **Gate 5: Numeric Range Analysis** — Runs `fr` (freerange) over the TypeScript covered by the root `tsconfig.json`, principally the generated `codegen/emitters/generated/card/card-layout.ts`. Where Gate 4 checks that the emitter's *shape* (brands, tokens, factories) is faithful, Gate 5 checks that the *arithmetic* inside the generated numeric helpers can't violate the `console.assert` preconditions projected from the same Shen obligations. See [below](#gate-5-numeric-range-analysis-freerange) for the full write-up.
+  > Two Shen rules worth knowing when editing contracts: an obligation must be
+  > an `if` side condition placed BEFORE the premises (a `: verified` assertion,
+  > or a bare expression, is never evaluated and can never be discharged); and
+  > `(declare F Type)` EVALUATES its type argument, so list types are written
+  > `[list X]`, never `(list X)`.
 
 **CLI options** (portable, works on macOS bash 3.2 + Linux):
 - `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`audit`, `tcb`, `regen`), `--gate 4` (`emit`, `emitter`, `codegen`), `--gate 5` (`fr`, `freerange`, `numeric`, `range`)

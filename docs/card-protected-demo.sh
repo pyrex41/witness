@@ -55,7 +55,7 @@ echo "${CYAN}▶ STEP 1 — Targeted Gate 4 (emitter fidelity — high-level *-c
 echo "   Command: ./bin/witness-design-gates.sh --gate 4   (equivalent: 'npm run gates -- --gate 4' or 'witness gates --gate 4')"
 echo "   (walks verified-card via live (card-contract-shape) from Shen, runs declared fidelityChecks, tsc --noEmit)"
 echo ""
-./bin/witness-design-gates.sh --gate 4 || true
+./bin/witness-design-gates.sh --gate 4
 echo ""
 echo "${GREEN}   ✓ Gate 4 passed — Card.tsx + card.css are faithful to the contracts.${NC}"
 echo ""
@@ -65,7 +65,7 @@ echo "   Command: witness loop specs/ui/card-spec.shen --dry-run --max-iter 1 --
 echo "   (Gates run before every iteration; banner + full backpressure visible;"
 echo "    no files are mutated in dry-run — perfect for safe observation.)"
 echo ""
-bash bin/witness-loop.sh specs/ui/card-spec.shen --dry-run --max-iter 1 --gate 4 || true
+bash bin/witness-loop.sh specs/ui/card-spec.shen --dry-run --max-iter 1 --gate 4
 echo ""
 echo "${GREEN}   ✓ Loop completed cleanly under protection (dry-run mode).${NC}"
 echo ""

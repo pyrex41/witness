@@ -5,9 +5,9 @@ This guide shows the **living, protected development environment** for the Shen 
 The same proof engine (`fits?`, `tc+`, layout oracles, Figma structural checks) that turns "layout overflow" into a compile-time error for end-user `.shen` files now protects the **Card itself**:
 
 - High-level datatypes + obligations (`verified-card`, `card-title-slot`, `card-desc-slot`, `card-action-slot`, `card-variant`, `layout-obligations-satisfied`, `figma-card-matches`, `responsive-variants-proven`) live in `specs/ui/properties/card-properties.shen`.
-- The composite proof `card-design-fidelity` **constructs a real `verified-card`** using the slot factories (`mk-card-title`, `mk-card-desc`, `mk-card-action`, `card ...`). `tc+` acceptance of this theorem **is** the proof that every premise was discharged.
+- The composite theorem `card-design-fidelity` is executed by Gate 2. The canonical `verified-card` is constructed in `specs/design/witness-core.shen` and type-checked by Gate 1 (`mk-card-title`, `mk-card-desc`, `mk-card-action`, `card ...`). `tc+` acceptance of the construction is what discharges the slot premises; Gate 2 separately executes the theorem bodies.
 - `specs/ui/card-spec.shen` keeps the thin low-level `render-view` (100% backward compat for `witness render`, tests, demos) while the high-level path is what the emitter and future codegen target.
-- Gate 1 (`tc+` over `specs/design/witness-core.shen`) now loads the Card properties + the canonical `assert-fits` measurements, so the fidelity theorem is actively proven on every gate run.
+- Gate 1 (`tc+` over `specs/design/*.shen`) type-checks constructions of the canonical Card. Building those values forces the type checker to evaluate each slot's `if (fits? ...)` side condition against a real Pretext measurement, so a slot whose text exceeds its bound turns the gate red.
 - Gate 4 runs the real `shen-witness` emitter (`codegen/emitters/card-emitter.js`) against the Card spec and enforces faithful branded output (`Card.tsx` + `card.css`).
 
 The result: **you cannot silently drift the Card contracts or the emitter**. The gates + `witness loop` give you a first-class "Ralph-style" protected shell for evolving the UI spec layer.

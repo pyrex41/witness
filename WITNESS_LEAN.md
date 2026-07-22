@@ -18,7 +18,7 @@ Textura (exists)            — Pretext + Yoga: full DOM-free layout
   └─ Yoga WASM (inside)     — Facebook's flexbox engine (React Native)
 node-canvas (exists)        — rasterization without a browser
 ─────────────────────────────────────────────────────────────
-Witness                     — ~1.1k lines Shen + ~730 lines JS glue
+Witness                     — ~1.7k lines Shen + ~2.4k lines JS (runtime + CLI)
 ```
 
 Everything above the line exists and works. We write the glue.
@@ -611,9 +611,9 @@ Actual lines by module. Planned estimates from the original sketch are shown for
 | `tailwind.shen` | `defcc` grammar for `tw` macro | ~100 | 146 |
 | `tea.shen` | Optional Elm-Architecture runtime | ~120 | 127 |
 | `witness.shen` | Loader | ~10 | 17 |
-| **Total Shen** | | **~700** | **~1,095** |
+| **Total Shen** | | **~700** | **1659** |
 
-JS glue: `boot.js` 212, `cli/check.js` 190, `cli/agent.js` 128, `cli/measure.js` 160, `cli/verify.js` 44. **~730 lines total JS glue.**
+JS: `boot.js` 267, `lib/measure-core.js` 184, `cli/check.js` 314, `cli/shen-check.js` 133, `cli/theorem-run.js` 115, `cli/measure.js` 138, `cli/agent.js` 219, `cli/freerange-audit.js` 1018, `cli/verify.js` 45. **2433 lines total.** (Plus ~1,300 lines of codegen emitter and ~1,900 lines of gate tooling, which this table has never counted.)
 
 ---
 
@@ -641,7 +641,7 @@ Textura gives us Pretext + Yoga as a single `computeLayout` — for free.
 ShenScript gives us JS interop — for free.
 
 We're not building a language or a layout engine.
-We're writing ~1,100 lines of Shen (plus ~730 lines of JS glue)
+We're writing ~1,660 lines of Shen (plus the JS that binds it to Pretext, Yoga and freerange)
 that connect three existing, proven tools in a way nobody has before.
 
 Proofs erase after compilation. Zero proof code ships to production.

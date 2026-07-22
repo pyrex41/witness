@@ -135,7 +135,7 @@ cli/measure.js 8547998ca449c4ceb14a154576efb0efdd188f4b1652a29954c4981cea31e4d5
 cli/shen-check.js a7ae36ec28e5caac731f8315b097fccf48f23c802eeedbae778723f1ce155977
 cli/theorem-run.js 95af352c1988ee1097f7b62e15bb2a7b8badb2d60b253bca2e643480cd604b16
 cli/freerange-audit.js 810a11d34c08148265364ca42f06f1760d3a0d061334892272b079818ade3a3b
-bin/witness-design-gates.sh ba7df962bc4597f4f530267eb95c5d42d65be40e2cc96ab3b301f99be0935cc4
+bin/witness-design-gates.sh 1969d33df38d1d2947bd7cb393f4f2bdbfe1c609717e2d4ded3840543f5f9e86
 boot.js 3e9741f28517140a5a96618b3bbe654ae565cd2433c09ce03fcb9b36df5b0079
 lib/measure-core.js de4b69323cc3786274d7e2e5a302e3e07d7eea98d4e718eeab4f64cb19d06bce
 codegen/emitters/card-emitter.js 9cf9d6e5966d9b4ae6ddae7e87e4ccfdca17e76e6461eb01ef6179c56b602600
@@ -227,7 +227,8 @@ run_gate_1() {
   print_gate_header 1 "Type-checking design specs (tc+ via Witness proof engine)"
   echo "  Discovers specs/design/*.shen and runs them through bin/witness-check.sh"
   echo "  (Phase 1: Node/Pretext measure of all text/font; Phase 2: $SHEN_BIN (tc+))."
-  echo "  This proves every : verified premise in the design datatypes using real layout oracles."
+  echo "  The design specs CONSTRUCT contract values; tc+ evaluates each contract's"
+  echo "  `if` side condition, which runs the real Pretext ruler over the declared text."
   echo ""
   if [ ! -d "$DESIGN_SPECS_DIR" ]; then
     fail_gate 1 "$DESIGN_SPECS_DIR does not exist. Create specs/design/ and add witness-core.shen (or run future 'witness design-init')."
@@ -254,7 +255,7 @@ run_gate_1() {
   fi
 
   local elapsed=$(( SECONDS - gate_start ))
-  echo -e "  ${GREEN}✓ Gate 1 passed${NC} (all :verified premises in design specs proven by real measurements + tc+) [${elapsed}s]"
+  echo -e "  ${GREEN}✓ Gate 1 passed${NC} (design specs constructed; every if side condition evaluated against real measurements) [${elapsed}s]"
   echo ""
 }
 

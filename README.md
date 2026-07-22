@@ -44,8 +44,8 @@ See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [
 | Figma structural diff, library + CLI | **WIP** — works on hand-crafted fixtures; [not yet validated](#figma-status) against real REST API exports |
 | SSR renderer → static HTML | works |
 | Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
-| `witness agent` widen-fix loop | works |
-| `(bounded N)` for numeric layout params (widths, counts) | wired — `fr --audit` → `cli/freerange-audit.js` → `specs/generated/numeric-bounds.shen` (see [Gate 5](#gate-5-numeric-range-analysis-freerange)) |
+| `witness agent` widen-fix loop | works — **note it rewrites your `.shen` files in place**, with no `--dry-run` |
+| `(bounded N)` for numeric layout params (widths, counts) | **half-wired** — `fr --audit` → `cli/freerange-audit.js` → `specs/generated/numeric-bounds.shen` produces interval facts that type-check under `tc+`, but nothing loads that file yet, so the `(bounded Lo Hi)` rule still has no live consumer |
 | `(bounded N)` for strings — worst-case `max-chars` | still declared, not wired — freerange is numbers-only, doesn't reach text |
 | DOM runtime (`run-app`, TEA) | library exists; browser harness TBD |
 
@@ -57,15 +57,24 @@ Layout bugs are discovered at the worst possible time: in the browser, after dep
 
 Witness makes these impossible to ship. If text doesn't fit its container, **the program doesn't compile**.
 
-```
+```shen
 (datatype layout-proofs
-    Text : string;  Font : font;  MaxW : number;
-    (<= (measure Text Font) MaxW);
+    if (<= (measure Text Font) MaxW)
+    Text : string;  Font : string;  MaxW : number;
   ______________________________________________
-    (fits Text Font MaxW) : verified;)
+    [proven-cell Text Font MaxW] : safe-text;)
 ```
 
 If `measure` returns 147px and `MaxW` is 96px, you get a type error — not a runtime bug.
+
+The `if` matters more than it looks. Shen **evaluates** an `if` side condition
+during type checking, so `(measure Text Font)` really runs the ruler. A premise
+written `(fits? Text Font MaxW) : verified;` — or as a bare expression, which is
+sugar for the same thing — is an assertion the checker never evaluates and
+nothing can discharge, so the rule fires for no input at all. This codebase had
+it the second way for most of its life; see `test/tc-enforcement.test.js`, which
+pins the behaviour at the exact boundary (text measuring 31.91px: `maxW` 32
+compiles, 31 does not).
 
 ---
 
@@ -94,10 +103,10 @@ Textura              — Pretext + Yoga: full DOM-free layout
   └─ Yoga WASM       — Facebook's flexbox engine (React Native)
 freerange            — static numeric range analyzer, checks generated TS arithmetic
 ──────────────────────────────────────────────────────────────
-Witness              — ~1.1k lines Shen + ~730 lines JS glue
+Witness              — ~1.7k lines Shen + ~2.4k lines JS (runtime + CLI)
 ```
 
-Everything above the line exists and works. Witness itself is ~1,100 lines of Shen (proofs, layout bridge, errors, figma diff, SSR + DOM renderers, tailwind macro, TEA runtime) plus ~730 lines of JS glue (ShenScript/Textura interop, CLI commands, agent loop).
+Everything above the line exists and works. Witness itself is ~1,660 lines of Shen (proofs, layout bridge, errors, figma diff, SSR + DOM renderers, tailwind macro, TEA runtime) plus ~2,430 lines of JS (ShenScript/Textura interop, the measurement oracle, CLI commands, agent loop), ~1,300 lines of codegen emitter, and ~1,900 lines of gate tooling.
 
 ### Why each piece matters
 
@@ -251,7 +260,7 @@ witness/
     └── counter.shen
 ```
 
-~1,100 lines of Shen. ~730 lines of JS glue.
+~1,660 lines of Shen. ~2,430 lines of JS runtime + CLI. ~1,300 lines of emitter. ~1,900 lines of gate tooling.
 
 ---
 
@@ -269,28 +278,37 @@ Witness now has its own **sb-shen-backpressure-style gate system** to protect it
 
 The system has moved from "rough but promising" to a solid, intentional self-hosting backpressure platform:
 
-- High-level contracts (`verified-card`, slots, `card-design-fidelity` theorem) are real and actively proven by Gate 1/2 via `witness-core.shen`.
-- The emitter is now driven by the live `(card-contract-shape)` descriptor from Shen (major reduction in duplication; emitter = thin deterministic projector).
-- Gate 4 is strong: auto-discovers `*-emitter.js`, runs declared `fidelityChecks[]` (co-located), real `tsc --noEmit`, and the full high-level walk.
-- Adding a new protected component is turnkey: `witness spec-init MyComponent` (tiny generic loader wires the properties; scaffolder emits correct skeleton + fidelityChecks emitter; Gate 4 auto-discovers everything). ~80% boilerplate, gates green immediately.
-- `witness loop` gives a rich, gate-aware protected development environment for the whole surface.
+- High-level contracts (`verified-card`, slots) are proven by Gate 1: `specs/design/witness-core.shen` constructs the canonical Card, which forces the type checker to evaluate each slot's `if (fits? ...)` side condition against a real Pretext measurement. Shrink a slot's bound below its measured width and Gate 1 goes red.
+- Gate 2 executes every property theorem it discovers and requires each to return true.
+- The emitter is driven by the live `(card-contract-shape)` descriptor from Shen; if that descriptor cannot be read, the emitter fails rather than falling back.
+- Gate 4 auto-discovers `*-emitter.js`, runs declared `fidelityChecks[]`, `tsc`, and a semantic check that measures the emitted slots **unclamped** against their proven bounds.
+- Adding a new protected component: `witness spec-init MyComponent` scaffolds the properties file and emitter; the loader wires the contract into the prelude and Gate 4 discovers the emitter. Its theorems are picked up by Gate 2 automatically.
 
-Formal design specs live in `specs/design/*.shen`. These use the same sequent-calculus + `: verified` premises as user layout proofs.
+> **A note on how these gates got here.** Every one of the claims above was
+> false at some point in this project's life, in ways nothing detected: Gate 1
+> type-checked two comment-only files, Gate 2 was two `echo` calls, Gate 4's
+> semantic check passed a 500-character title, the emitter ran on hardcoded
+> fallbacks because its Shen descriptor had never loaded, and the ruler measured
+> at 10px because a canvas silently rejects CSS font shorthand with a
+> line-height. Each gate now has a documented way to make it fail, and the ones
+> that could not fail were rebuilt rather than re-described.
+
+Formal design specs live in `specs/design/*.shen`. Obligations are written as `if` **side conditions**, which Shen evaluates during type checking — not as `: verified` assertions, which it does not.
 
 Run the gates with:
 
 ```bash
 witness gates
 npm run gates
-./bin/witness-design-gates.sh --quick
+./bin/witness-design-gates.sh --gate 2   # single gate; full suite is ~12s
 ```
 
 **Current gates** (numbered, individually addressable, with TCB/regeneration audit):
 
 1. `tc+` on all design specs (using the real `fits?` / Pretext measurement + ShenScript in-process for `tc+`; `WITNESS_SHEN_ENGINE=native` uses `shen-cl` / `shen-sbcl` instead)
-2. Property proofs / design theorems
+2. Property theorems — discovered by shape in `specs/ui/properties/*.shen` and **executed**; false, erroring, or none-found all fail the gate
 3. Regeneration audit (SHA-256 fidelity check on the Trusted Computing Base — `witness.shen`, `trust.shen`, `layout.shen`, renderers, checker, etc.)
-4. Emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, runs their `fidelityChecks[]`, `tsc`, and the high-level `verified-card` semantic walk)
+4. Emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, runs their `fidelityChecks[]`, project-wide `tsc`, and a semantic check that measures each emitted slot unclamped against its proven bound)
 5. Numeric range analysis (`fr` / freerange over the emitted TypeScript — checks the arithmetic behind Gate 4's artifacts against `console.assert` preconditions projected from the same Shen obligations)
 
 This is the meta layer that will ensure the Card spike, `shen-witness` codegen emitter, semantic CSS, and guarded component factories stay faithful to their specs.
@@ -345,4 +363,4 @@ Shen gives us types, Prolog, and parser combinators — for free.
 Textura gives us Pretext + Yoga as a single `computeLayout` call — for free.  
 ShenScript gives us JS interop — for free.
 
-We're not building a language or a layout engine. We're writing ~1,100 lines of Shen (plus ~730 lines of JS glue) that connect three proven tools in a way nobody has before.
+We're not building a language or a layout engine. We're writing ~1,660 lines of Shen (plus the JS that binds it to Pretext, Yoga and freerange) that connect four proven tools in a way nobody has before.
