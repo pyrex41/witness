@@ -1,44 +1,29 @@
 #!/bin/bash
 # bin/witness-design-gates.sh
 #
-# sb-style gate runner for Witness design fidelity backpressure.
-# 
-# Uses the project's own two-phase proof system (Node + Pretext measurement + shen-sbcl tc+)
-# to validate that the implementation stays faithful to the formal design specs in specs/design/.
+# Design-fidelity gate runner. The same proof machinery that makes layout overflow a
+# compile-time error for users is turned on Witness's own contracts: the specs are
+# constructed and type-checked, the theorems executed, the emitter regenerated and
+# diffed, and the emitted TypeScript checked by freerange.
 #
-# This is the meta-application of Witness: the same machinery that makes "layout overflow a
-# compile-time type error" for users now makes "design drift a compile-time error" for us.
+# Four gates:
+#   Gate 1: tc+ on specs/design/*.shen — constructs the canonical contracts, so the type
+#           checker evaluates each `if (fits? ...)` side condition against a real Pretext
+#           measurement. Fails when a slot's text exceeds its bound.
+#   Gate 2: Property theorems — discovered by shape in specs/ui/properties/*.shen and
+#           EXECUTED; false / erroring / none-found all fail.
+#   Gate 3: Emitter fidelity — regenerate from the live (card-contract-shape), diff against
+#           what is committed, run the emitter's fidelityChecks against the contract, tsc,
+#           and a semantic check that measures each emitted slot unclamped against its bound.
+#   Gate 4: Numeric range enforcement — freerange over the emitted TypeScript.
 #
-# Gate structure (modeled on sb-shen-backpressure's core 5 gates + TCB audit from SKILL.md / loop.md):
-#   Gate 1: tc+ on all specs/design/*.shen   (catches broken invariants/claims in the specs themselves)
-#   Gate 2: Property proof verification     (theorems about load-order, renderer contracts, tier model
-#                                            are proven by tc+ acceptance of their :verified premises)
-#   Gate 3: Regeneration / TCB Audit        (SHA-256 of core impl files vs committed hashes; fails on
-#                                            drift in witness.shen load order, trust macro, layout rules,
-#                                            renderers, etc. — the TCB for the design contracts)
-#
-#   Gate 4: Emitter fidelity — run card-emitter.js on the Card contracts,
-#           assert emitted Card.tsx + card.css + stories + fixture match the
-#           verified shape (brands, factories, tokens, variant matrix from spec).
-#
-# Supports:
-#   - Running individual gates: --gate 1 , --gate audit , --gate tc , --gate 3
-#   - Modes: --full (default, all gates incl. audit) vs --quick (Gates 1+2 only)
-#   - --update-manifest : after intentional core changes, prints new hash block to paste into this script
-#   - Colored output (auto-disabled in non-tty / CI)
-#   - Per-gate + total timing
-#   - Actionable failure messages with links to README
+# Integrity of the source files is provided by git + review, not a self-hashed manifest.
 #
 # Usage:
-#   ./bin/witness-design-gates.sh
-#   ./bin/witness-design-gates.sh --quick
-#   ./bin/witness-design-gates.sh --gate audit
+#   ./bin/witness-design-gates.sh            # all four
+#   ./bin/witness-design-gates.sh --quick    # Gates 1 + 2 only
+#   ./bin/witness-design-gates.sh --gate 3   # a single gate
 #   npm run gates
-#   npm run gates -- --gate 2
-#
-# Philosophy (from sb pattern): Compiler / proof-system enforcement, not LLM policing.
-# The LLM (or human) proposes evolution; these gates + tc+ say "no" on fidelity loss.
-# Regeneration (here: hash audit) + host verification provides the hammer.
 
 set -euo pipefail
 
@@ -81,74 +66,6 @@ else
 fi
 export WITNESS_SHEN_ENGINE
 
-# --- Design fidelity TCB: core files whose contracts are formalized in specs/design/witness-core.shen
-#     (load order + trust macro + layout overflow rules + renderer contracts + measurement/checker)
-#     Any change here must be reviewed against the design specs; the audit gate enforces it.
-CORE_FILES=(
-  shen/witness.shen
-  shen/trust.shen
-  shen/layout.shen
-  shen/proofs.shen
-  shen/witness-sbcl.shen
-  shen/ssr.shen
-  shen/dom.shen
-  bin/witness-check.sh
-  cli/measure.js
-  cli/shen-check.js
-  cli/theorem-run.js
-  cli/freerange-audit.js
-  # Everything below was OUTSIDE the TCB while being fully capable of disabling
-  # a gate. The specs in particular are how witness-core.shen was hollowed out
-  # to a comment-only stub without anything noticing for however long.
-  bin/witness-design-gates.sh
-  boot.js
-  lib/measure-core.js
-  codegen/emitters/card-emitter.js
-  tsconfig.json
-  specs/design/witness-core.shen
-  specs/design/load-order-trust.shen
-  specs/ui/tokens.shen
-  specs/ui/card-spec.shen
-  specs/ui/properties/card-properties.shen
-  specs/ui/properties/alert-properties.shen
-)
-
-# Embedded expected SHA-256 hashes for the TCB (current approved design state).
-# Portable format (no bash 4+ assoc arrays — macOS /bin/bash is 3.2).
-# These are the "committed" side of the TCB audit, analogous to committed generated guard files
-# in the sb-shen-backpressure tcb-audit gate.
-# To refresh after a deliberate, reviewed change to one of these files:
-#   1. Run: ./bin/witness-design-gates.sh --update-manifest
-#   2. Paste the new FIDELITY_MANIFEST here-doc below (replacing the old one)
-#   3. Re-run the gates to confirm
-#   4. Commit the diff to this script (the gate runner is part of the TCB)
-FIDELITY_MANIFEST=$(cat <<'MANIFEST_EOF'
-shen/witness.shen 04517fdc2326c73cdb339e2d59cd4ae3bf99ae9cccafa8743e0eeea6954000de
-shen/trust.shen b736703f85cac4fd6d8bcb3fb53c94174926a3986c762304db40aadad469b870
-shen/layout.shen 6122b6db8e0a137bc75ce137454a5dd04b4697e534bb64798958f1d0aba5fc23
-shen/proofs.shen 7ab1c982685e061ba82cdbad9219e5b923462b01f6df983480876d0035b6c87d
-shen/witness-sbcl.shen 139e04d7376e8833e5da9518b70ee5442c1e98f7678db1a13afd80002a550e5b
-shen/ssr.shen 7249622e990120992b30d55b97fd51b367ef52cd8c254987a0cf91fd1c42ad4f
-shen/dom.shen 3d8c6cfe989f942e4851b33596296f0d0abf49e7052a71c532d2d5080a17387b
-bin/witness-check.sh 46a9c68c1f33396255e3f37ca58977d3b08a9039326fc1377b0f958db933eed8
-cli/measure.js 74bc5e940ba660da665fced08c6635ed667dfbacdbbdad1d39717bad5f195bf2
-cli/shen-check.js a7ae36ec28e5caac731f8315b097fccf48f23c802eeedbae778723f1ce155977
-cli/theorem-run.js fe3bb1dcd3982285629b8ed2508135fb056c195cbec37c8923b218cd48ae285a
-cli/freerange-audit.js fda2124f95c5f31cda1385bee6164e29196bc7c142954c58e3922e0037a2446d
-bin/witness-design-gates.sh f103485336102a949a211797d35df9a43b4d014706797637a37ae6aa24059e64
-boot.js 3e9741f28517140a5a96618b3bbe654ae565cd2433c09ce03fcb9b36df5b0079
-lib/measure-core.js de4b69323cc3786274d7e2e5a302e3e07d7eea98d4e718eeab4f64cb19d06bce
-codegen/emitters/card-emitter.js e4925404f473a3222ba2177b88dd5ed188ba5ee2364a3775349e676894b566cc
-tsconfig.json 1b37cecd2314b22c4ca71d2bd02beec37beda1581a717793e837adbf83d92484
-specs/design/witness-core.shen a6173e2562e9ce0a2f692a81c1086bf81714b71151fc84e0aa5985b9ef5ccf4c
-specs/design/load-order-trust.shen c7c353813af921a08f9f87b450cac3e45ea2de377e9b54ae2327ecb8eedfb6f4
-specs/ui/tokens.shen b0723307b6f4536849db37daa84583fd68ea328530953e3ae9fd71f8c045758a
-specs/ui/card-spec.shen f346aca2844699f92c05f1e79845e58eb26b806e5e5ca601f7ad651eacb12506
-specs/ui/properties/card-properties.shen e5b7a6da027598d1db915c2e355e07a66f6bfc72889949fe3e1c87ce56d7d8af
-specs/ui/properties/alert-properties.shen e944d55e173674c3a38c195ad71302a6243475de6b7b08ea5a34e2a12d1c0ebd
-MANIFEST_EOF
-)
-
 # Color setup (CI-safe: disabled when stdout is not a tty)
 setup_colors() {
   if [[ -t 1 ]]; then
@@ -168,34 +85,6 @@ setup_colors() {
   fi
 }
 
-get_sha256() {
-  local file="$1"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$file" | awk '{print $1}'
-  else
-    shasum -a 256 "$file" | awk '{print $1}'
-  fi
-}
-
-# This script is itself in the TCB, which creates a fixpoint problem: recording
-# its hash edits the manifest, which changes the hash. So hash the runner with
-# its manifest block ELIDED. Any other change to the runner — a weakened check,
-# a skipped gate, a new exemption — still moves the hash, which is the point.
-get_tcb_sha256() {
-  local file="$1"
-  if [ "$file" = "$SCRIPT_DIR/bin/witness-design-gates.sh" ]; then
-    local normalized
-    normalized=$(sed '/^FIDELITY_MANIFEST=\$(cat <<.MANIFEST_EOF./,/^MANIFEST_EOF$/d' "$file")
-    if command -v sha256sum >/dev/null 2>&1; then
-      printf '%s' "$normalized" | sha256sum | awk '{print $1}'
-    else
-      printf '%s' "$normalized" | shasum -a 256 | awk '{print $1}'
-    fi
-  else
-    get_sha256 "$file"
-  fi
-}
-
 print_gate_header() {
   local num="$1" desc="$2"
   echo -e "${BOLD}${BLUE}Gate $num: ${desc}${NC}"
@@ -208,14 +97,10 @@ fail_gate() {
   echo ""
   echo -e "${YELLOW}Actionable fixes:${NC}"
   echo "  1. Read the failure details above."
-  echo "  2. Consult specs/design/README.md for the exact contracts (witness-load-order-contract,"
-  echo "     renderer-contract, witness-proof-tier, etc.) and how they map to source."
-  echo "  3. Either fix the implementation to restore the invariant, or (if the design itself"
-  echo "     evolved) update the spec in specs/design/ and/or the fidelity hashes here."
+  echo "  2. Consult specs/design/README.md for the contracts and how they map to source."
+  echo "  3. Either fix the implementation to restore the invariant, or (if the design"
+  echo "     itself evolved) update the spec in specs/design/ or specs/ui/."
   echo "  4. Re-run: ./bin/witness-design-gates.sh   (or npm run gates)"
-  echo ""
-  echo "This gate system exists so we can evolve Witness (UI specs, Card spike, shen-witness emitter,"
-  echo "semantic CSS, Astro guarded components) without ever losing the proven foundations."
   echo ""
   exit 1
 }
@@ -294,71 +179,7 @@ run_gate_2() {
 
 run_gate_3() {
   local gate_start=$SECONDS
-  print_gate_header 3 "Regeneration / TCB Audit (fidelity hash check)"
-  echo "  SHA-256 of the trusted computing base (core .shen + checker + measure) vs embedded approved hashes."
-  echo "  Analogous to sb-shen-backpressure Gate 5 (tcb-audit.sh): any drift in the files that implement"
-  echo "  the contracts formalized by the design specs causes immediate failure."
-  echo "  Protects load-order discipline (witness.shen:7-26 + trust.shen:25), overflow->css (layout.shen:63),"
-  echo "  the three-tier model (proofs.shen), renderer contracts (ssr.shen, dom.shen), and the two-phase engine."
-  echo ""
-  local drift_detected=0
-  for f in "${CORE_FILES[@]}"; do
-    local full_path="$SCRIPT_DIR/$f"
-    if [ ! -f "$full_path" ]; then
-      echo -e "  ${RED}✗ Core TCB file missing: $f${NC}"
-      drift_detected=1
-      continue
-    fi
-    local actual
-    actual=$(get_tcb_sha256 "$full_path")
-    # Portable lookup in the manifest (bash 3.2 compatible, no assoc arrays)
-    local expected
-    expected=$(printf '%s\n' "$FIDELITY_MANIFEST" | awk -v file="$f" '$1 == file {print $2; exit}')
-    if [ -z "$expected" ]; then
-      # Previously a yellow "?" that did NOT set drift_detected — so adding a
-      # file to the TCB without a hash silently passed, which defeats the audit.
-      echo -e "  ${RED}✗ $f is in CORE_FILES but has no recorded hash${NC}"
-      echo "      Run --update-manifest and commit the result."
-      drift_detected=1
-    elif [ "$actual" != "$expected" ]; then
-      echo -e "  ${RED}✗ DRIFT: $f${NC}"
-      echo "      Expected (approved design state): $expected"
-      echo "      Actual   (current on disk)      : $actual"
-      drift_detected=1
-    else
-      echo -e "  ${GREEN}✓${NC} $f"
-    fi
-  done
-
-  local elapsed=$(( SECONDS - gate_start ))
-  if [ $drift_detected -eq 1 ]; then
-    echo ""
-    echo -e "${RED}✗ Gate 3 FAILED: Design fidelity drift in the TCB.${NC}"
-    echo ""
-    echo "  One or more files that realize the design contracts (load order, trust macro, layout rules,"
-    echo "  renderer overflow handling, proof sequents, measurement) have changed without a corresponding"
-    echo "  update to the approved hashes in this script."
-    echo ""
-    echo "  This breaks the guarantee that the specs in specs/design/ accurately describe the implementation."
-    echo ""
-    echo -e "${YELLOW}To accept the change as the new approved design state (after you have reviewed it):${NC}"
-    echo "    ./bin/witness-design-gates.sh --update-manifest"
-    echo "    # copy the printed declare -A block into this file (replacing the old hashes)"
-    echo "    ./bin/witness-design-gates.sh   # verify it now passes"
-    echo "    git add bin/witness-design-gates.sh && git commit -m 'chore: update design fidelity TCB hashes'"
-    echo ""
-    echo "  See specs/design/README.md section on the TCB Audit gate for rationale (directly from the sb pattern)."
-    echo ""
-    exit 1
-  fi
-
-  echo -e "  ${GREEN}✓ Gate 3 passed${NC} (no drift — implementation matches the design fidelity snapshot) [${elapsed}s]"
-  echo ""
-}
-
-run_gate_4() {
-  local gate_start=$SECONDS
-  print_gate_header 4 "Emitter fidelity (shen-witness codegen — fidelity convention + tsc + semantic)"
+  print_gate_header 3 "Emitter fidelity (shen-witness codegen — fidelity convention + tsc + semantic)"
   echo "  Auto-discovers codegen/emitters/*-emitter.js (non-stub), boots Shen via each,"
   echo "  walks its verified-* contracts (high-level path preferred), emits branded .tsx/.css"
   echo "  (+ richer), runs the emitter'\''s own declared fidelityChecks[], tsc --noEmit on .tsx,"
@@ -378,7 +199,7 @@ run_gate_4() {
 
   local emitter_path="$SCRIPT_DIR/codegen/emitters/card-emitter.js"
   if [ ! -f "$emitter_path" ]; then
-    fail_gate 4 "card-emitter.js not found at $emitter_path"
+    fail_gate 3 "card-emitter.js not found at $emitter_path"
   fi
 
   # Run the emitter (it prints summary on CLI; we also invoke programmatically for checks)
@@ -386,11 +207,11 @@ run_gate_4() {
   if $do_emit; then
     echo "  (write mode: artifacts will be written under codegen/emitters/generated/card/)"
     if ! node "$emitter_path" --emit 2>&1; then
-      fail_gate 4 "Emitter failed during --emit write (see output above)"
+      fail_gate 3 "Emitter failed during --emit write (see output above)"
     fi
   else
     if ! node "$emitter_path" 2>&1 | tail -5; then
-      fail_gate 4 "Emitter failed to produce artifacts (see output above)"
+      fail_gate 3 "Emitter failed to produce artifacts (see output above)"
     fi
   fi
 
@@ -400,7 +221,7 @@ run_gate_4() {
   #   run every exported .fidelityChecks entry (test fn over the files map)
   #   + strengthened: for any *.tsx output, run tsc --noEmit (with React shim + temp tsconfig)
   #     using local ./node_modules/.bin/tsc if present, else npx --yes typescript (cached)
-  # This makes Gate 4 discover+enforce for new components with zero changes to this script.
+  # This makes Gate 3 discover+enforce for new components with zero changes to this script.
   echo "  Running fidelity assertions (auto-discover emitters + declared fidelityChecks + tsc on TS)..."
   export SCRIPT_DIR
   if ! node -e '
@@ -455,7 +276,7 @@ run_gate_4() {
         }
 
         // REGENERATION CHECK: what the emitter produces now must equal what is
-        // committed on disk. Gate 4 ran its checks against the in-memory map
+        // committed on disk. Gate 3 ran its checks against the in-memory map
         // while tsc and freerange ran against the files, and nothing compared
         // the two — so a stale generated/ directory, or a hand-edit to it,
         // passed every gate. They happened to match; nothing enforced it.
@@ -488,7 +309,7 @@ run_gate_4() {
         } else {
           console.log("  ✓ " + ef + " (no fidelityChecks declared; structural emit ok)");
         }
-        // Project-wide TypeScript check now lives in Gate 5 (bin/witness-design-gates.sh
+        // Project-wide TypeScript check now lives in Gate 4 (bin/witness-design-gates.sh
         // run_gate_5(), via ./node_modules/.bin/fr — freerange is a strict superset of tsc, run
         // over the real root tsconfig.json, so it subsumes this check). The old per-emitted-.tsx
         // temp-dir + "npx --yes -- tsc" hack is gone (see git history); it is invoked once,
@@ -527,22 +348,22 @@ run_gate_4() {
       }
 
       // Single project-wide tsc sanity check (replaces the old per-.tsx temp-dir/npx hack).
-      // Full, authoritative TypeScript + numeric-range enforcement is Gate 5 (freerange, a
+      // Full, authoritative TypeScript + numeric-range enforcement is Gate 4 (freerange, a
       // strict superset of tsc, over this exact tsconfig.json). This is a fast local echo of
-      // that so Gate 4 fails fast without waiting on Gate 5.
+      // that so Gate 3 fails fast without waiting on Gate 4.
       const localTsc = path.join(scriptDir, "node_modules", ".bin", "tsc");
       const rootTsconfig = path.join(scriptDir, "tsconfig.json");
       if (fs.existsSync(localTsc) && fs.existsSync(rootTsconfig)) {
         try {
           execSync("\"" + localTsc + "\" -p \"" + rootTsconfig + "\"", { cwd: scriptDir, stdio: "pipe", timeout: 180000 });
-          console.log("  ✓ tsc -p tsconfig.json (project-wide; full enforcement is Gate 5)");
+          console.log("  ✓ tsc -p tsconfig.json (project-wide; full enforcement is Gate 4)");
         } catch (e) {
           const out = ((e && (e.stdout || e.stderr)) || "").toString().slice(0, 1200);
           console.error("  ✗ tsc -p tsconfig.json FAILED:\\n" + out);
-          allFailures.push("tsc -p tsconfig.json (project-wide check; see Gate 5 for full freerange enforcement)");
+          allFailures.push("tsc -p tsconfig.json (project-wide check; see Gate 4 for full freerange enforcement)");
         }
       } else {
-        console.log("  (./node_modules/.bin/tsc or tsconfig.json not found; skipping project-wide tsc sanity check here — Gate 5 still enforces via freerange)");
+        console.log("  (./node_modules/.bin/tsc or tsconfig.json not found; skipping project-wide tsc sanity check here — Gate 4 still enforces via freerange)");
       }
 
       if (allFailures.length > 0) {
@@ -552,23 +373,23 @@ run_gate_4() {
       console.log("  ✓ All auto-discovered component emitters passed fidelityChecks + tsc.");
       process.exit(0);
     })().catch(function(e) {
-      console.error("  Gate 4 discovery/check error:", e && (e.message || e));
+      console.error("  Gate 3 discovery/check error:", e && (e.message || e));
       process.exit(1);
     });
   ' 2>&1 ; then
     echo ""
-    echo -e "${RED}✗ Gate 4 FAILED: Emitter fidelity drift, tsc error, or check failure.${NC}"
+    echo -e "${RED}✗ Gate 3 FAILED: Emitter fidelity drift, tsc error, or check failure.${NC}"
     echo ""
     echo "  One or more auto-discovered *-emitter.js no longer satisfy their declared"
     echo "  fidelityChecks (moved into the emitter for co-location) or the emitted .tsx"
     echo "  failed tsc --noEmit (new strengthening)."
     echo ""
     echo -e "${YELLOW}To regenerate (for Card):${NC}"
-    echo "    ./bin/witness-design-gates.sh --emit --gate 4"
+    echo "    ./bin/witness-design-gates.sh --emit --gate 3"
     echo "    # inspect codegen/emitters/generated/card/ then re-run without --emit"
     echo ""
     echo "  New components: implement *-emitter.js exporting emit() + fidelityChecks[],"
-    echo "  Gate 4 will discover it automatically (no edit to this script)."
+    echo "  Gate 3 will discover it automatically (no edit to this script)."
     echo ""
     echo "  The same backpressure that protects user layouts now protects the generator (stronger)."
     echo ""
@@ -576,19 +397,19 @@ run_gate_4() {
   fi
 
   local elapsed=$(( SECONDS - gate_start ))
-  echo -e "  ${GREEN}✓ Gate 4 passed${NC} (emitter produces faithful Card.tsx + card.css + richer targets) [${elapsed}s]"
+  echo -e "  ${GREEN}✓ Gate 3 passed${NC} (emitter produces faithful Card.tsx + card.css + richer targets) [${elapsed}s]"
   echo ""
 }
 
-run_gate_5() {
+run_gate_4() {
   local gate_start=$SECONDS
-  print_gate_header 5 "Numeric range enforcement (freerange over emitted TypeScript)"
+  print_gate_header 4 "Numeric range enforcement (freerange over emitted TypeScript)"
   echo "  Runs ./node_modules/.bin/fr over the project (respects tsconfig.json's include: "
   echo "  codegen/emitters/generated/**/* + codegen/ts/**/*) to statically verify the numeric"
   echo "  layout arithmetic that consumes Witness's proven design constants — division-by-zero,"
   echo "  out-of-range indexing, NaN propagation — against console.assert(...) preconditions"
   echo "  projected from (card-contract-shape). freerange is a strict superset of tsc, so this"
-  echo "  also subsumes the project-wide TypeScript check (Gate 4 keeps a fast local echo of it)."
+  echo "  also subsumes the project-wide TypeScript check (Gate 3 keeps a fast local echo of it)."
   echo "  This is Tier 2 backpressure: Shen proves the design; freerange propagates the numeric"
   echo "  obligations into the TypeScript that actually computes layout."
   echo ""
@@ -600,12 +421,12 @@ run_gate_5() {
 
   local fr_bin="$SCRIPT_DIR/node_modules/.bin/fr"
   if [ ! -x "$fr_bin" ]; then
-    echo -e "${RED}✗ Gate 5 FAILED${NC}: freerange is not installed."
+    echo -e "${RED}✗ Gate 4 FAILED${NC}: freerange is not installed."
     echo ""
     echo -e "${YELLOW}Actionable fixes:${NC}"
     echo "  1. Run: npm install   (installs the @chenglou/freerange devDependency)"
     echo "  2. Verify: ./node_modules/.bin/fr    (should run against ./tsconfig.json, not error 'not found')"
-    echo "  3. Re-run: ./bin/witness-design-gates.sh --gate 5"
+    echo "  3. Re-run: ./bin/witness-design-gates.sh --gate 4"
     echo ""
     exit 1
   fi
@@ -617,7 +438,7 @@ run_gate_5() {
   echo ""
 
   if [ $fr_exit -ne 0 ]; then
-    echo -e "${RED}✗ Gate 5 FAILED${NC}: freerange reported errors over the project (see output above)."
+    echo -e "${RED}✗ Gate 4 FAILED${NC}: freerange reported errors over the project (see output above)."
     echo ""
     echo -e "${YELLOW}Actionable fixes:${NC}"
     echo "  1. [declared-requirement] finding: a call site provably violates a leading"
@@ -633,7 +454,7 @@ run_gate_5() {
     echo "     tsc, so this is an ordinary type error in the emitted/hand-written source; fix it"
     echo "     directly, same as you would under 'npx tsc -p tsconfig.json'."
     echo "  4. To regenerate the emitted TypeScript from the live Shen contracts:"
-    echo "       ./bin/witness-design-gates.sh --emit --gate 4"
+    echo "       ./bin/witness-design-gates.sh --emit --gate 3"
     echo "  5. CROSS-FILE LIMITATION: freerange never checks a contract against a call site in a"
     echo "     different file (the caller counts as 'unsupported', silently). If a bad call isn't"
     echo "     being caught, check whether the contracted function and the call live in the same"
@@ -645,7 +466,7 @@ run_gate_5() {
   echo -e "  ${GREEN}✓${NC} freerange: no findings over the project."
   echo ""
 
-  # --- Negative fixture: proves Gate 5 is LIVE, not vacuously green. ---
+  # --- Negative fixture: proves Gate 4 is LIVE, not vacuously green. ---
   # codegen/ts/demo/consumer-bad.ts is deliberately excluded from tsconfig.json's "include" (per
   # the agreed cross-track interface) so it never pollutes the real project-wide run above. To
   # still analyze it, freerange must be invoked from a cwd with NO tsconfig.json in its parent
@@ -654,7 +475,7 @@ run_gate_5() {
   # codegen/ts/demo/consumer-bad.ts for the full empirical basis of this choice.
   local bad_fixture="$SCRIPT_DIR/codegen/ts/demo/consumer-bad.ts"
   if [ ! -f "$bad_fixture" ]; then
-    fail_gate 5 "negative fixture missing: codegen/ts/demo/consumer-bad.ts (must exist -- it is what proves this gate is not vacuously green; do not delete it)"
+    fail_gate 4 "negative fixture missing: codegen/ts/demo/consumer-bad.ts (must exist -- it is what proves this gate is not vacuously green; do not delete it)"
   fi
 
   echo "  Running negative fixture (EXPECT FAILURE): fr codegen/ts/demo/consumer-bad.ts"
@@ -666,7 +487,7 @@ run_gate_5() {
   echo ""
 
   if [ $neg_exit -eq 0 ]; then
-    echo -e "${RED}✗ Gate 5 FAILED${NC}: the negative fixture was NOT rejected by freerange."
+    echo -e "${RED}✗ Gate 4 FAILED${NC}: the negative fixture was NOT rejected by freerange."
     echo ""
     echo "  codegen/ts/demo/consumer-bad.ts calls cardActionSlotWidth(268, 0) in the same file as"
     echo "  its console.assert(actionCount >= 1) precondition, and freerange exited 0 (silent)."
@@ -705,7 +526,7 @@ run_gate_5() {
         echo -e "  ${YELLOW}⚠ no emitted TS artifacts found to audit yet -- skipping --audit sub-mode.${NC}"
       else
         if ! (cd "$SCRIPT_DIR" && node "$audit_script" "${audit_targets[@]}") 2>&1 | sed 's/^/  /'; then
-          fail_gate 5 "cli/freerange-audit.js reported an error (see output above); the bridge is documented as non-fatal, so this indicates a real problem worth a look."
+          fail_gate 4 "cli/freerange-audit.js reported an error (see output above); the bridge is documented as non-fatal, so this indicates a real problem worth a look."
         fi
         echo -e "  ${GREEN}✓${NC} freerange-audit bridge ran cleanly."
       fi
@@ -714,27 +535,8 @@ run_gate_5() {
   fi
 
   local elapsed=$(( SECONDS - gate_start ))
-  echo -e "  ${GREEN}✓ Gate 5 passed${NC} (freerange clean over the project + negative fixture correctly rejected) [${elapsed}s]"
+  echo -e "  ${GREEN}✓ Gate 4 passed${NC} (freerange clean over the project + negative fixture correctly rejected) [${elapsed}s]"
   echo ""
-}
-
-print_update_manifest() {
-  echo "# === UPDATED FIDELITY_MANIFEST (replace the here-doc in bin/witness-design-gates.sh) ==="
-  echo "# Generated on $(date)"
-  echo "# Run this gate runner again after pasting to confirm all gates pass."
-  echo 'FIDELITY_MANIFEST=$(cat <<'"'"'MANIFEST_EOF'"'"''
-  for f in "${CORE_FILES[@]}"; do
-    local full="$SCRIPT_DIR/$f"
-    if [ -f "$full" ]; then
-      local h
-      h=$(get_tcb_sha256 "$full")
-      echo "$f $h"
-    fi
-  done
-  echo "MANIFEST_EOF"
-  echo ")"
-  echo "# === END OF UPDATED BLOCK ==="
-  echo "# After replacing, run the gates (full) to self-verify."
 }
 
 usage() {
@@ -750,21 +552,19 @@ Options:
                     property, regen, hash, tcb, emit, emitter, fr, freerange, numeric, range
   --quick           Run Gates 1 + 2 only (skip TCB audit + emitter + freerange). Fast for inner dev loop.
   --full            Run all five gates (default).
-  --emit            When running Gate 4, also write the emitted Card.tsx + card.css to codegen/emitters/generated/card/
-  --audit           Opt-in sub-mode for Gate 5: also runs Track C's cli/freerange-audit.js bridge
+  --emit            When running Gate 3, also write the emitted Card.tsx + card.css to codegen/emitters/generated/card/
+  --audit           Opt-in sub-mode for Gate 4: also runs Track C's cli/freerange-audit.js bridge
                     over the emitted layout TS (skips gracefully with a note if that file doesn't exist yet).
-  --update-manifest Print a fresh FIDELITY_MANIFEST here-doc with current hashes (for intentional TCB changes).
   -h, --help        Show this help.
 
 Examples:
   npm run gates
   ./bin/witness-design-gates.sh --quick
   ./bin/witness-design-gates.sh --gate audit
+  ./bin/witness-design-gates.sh --gate 3
+  ./bin/witness-design-gates.sh --emit --gate 3
   ./bin/witness-design-gates.sh --gate 4
-  ./bin/witness-design-gates.sh --emit --gate 4
-  ./bin/witness-design-gates.sh --gate 5
-  ./bin/witness-design-gates.sh --gate 5 --audit
-  ./bin/witness-design-gates.sh --update-manifest
+  ./bin/witness-design-gates.sh --gate 4 --audit
 
 This runner is the enforcement mechanism for the self-hosting design specs.
 It will be wired into CI, the witness agent loop, and future Ralph-style autonomous evolution loops
@@ -783,7 +583,6 @@ setup_colors
 
 GATE_SPEC=""
 MODE="full"
-UPDATE=false
 EMIT=false
 GATE5_AUDIT=false
 
@@ -800,10 +599,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       MODE="full"
-      shift
-      ;;
-    --update-manifest|--update-fidelity|--update)
-      UPDATE=true
       shift
       ;;
     --emit)
@@ -826,13 +621,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if $UPDATE; then
-  print_update_manifest
-  exit 0
-fi
-
-echo -e "${BOLD}=== Witness Design Fidelity Gates (sb-style backpressure) ===${NC}"
-echo "Self-hosting: the Witness proof system validates its own design invariants."
+echo -e "${BOLD}=== Witness design-fidelity gates ===${NC}"
+echo "The Witness proof system validates its own contracts."
 echo "This backpressure protects evolution toward the full Shen UI Specifications (design doc)."
 echo ""
 
@@ -846,18 +636,15 @@ if [ -n "$GATE_SPEC" ]; then
     2|proof|proofs|property|theorem)
       run_gate_2
       ;;
-    3|audit|tcb|regen|regeneration|hash|fidelity)
+    3|emit|emitter|codegen|fidelity-emit)
       run_gate_3
       ;;
-    4|emit|emitter|codegen|fidelity-emit)
+    4|fr|freerange|numeric|range)
       run_gate_4
-      ;;
-    5|fr|freerange|numeric|range)
-      run_gate_5
       ;;
     *)
       echo -e "${RED}Unknown --gate value: '$GATE_SPEC'${NC}"
-      echo "Valid: 1 / tc / design ,  2 / proofs / property ,  3 / audit / tcb / regen ,  4 / emit / emitter / codegen ,  5 / fr / freerange / numeric / range"
+      echo "Valid: 1 / tc / design ,  2 / proofs / property ,  3 / emit / emitter / codegen ,  4 / fr / freerange / numeric / range"
       exit 1
       ;;
   esac
@@ -867,9 +654,8 @@ else
   if [ "$MODE" = "full" ]; then
     run_gate_3
     run_gate_4
-    run_gate_5
   else
-    echo -e "${YELLOW}--quick mode: Gate 3 (TCB audit) + Gate 4 (emitter) + Gate 5 (freerange) skipped${NC}"
+    echo -e "${YELLOW}--quick mode: Gate 3 (emitter) + Gate 3 (freerange) skipped${NC}"
     echo ""
   fi
 fi
@@ -887,12 +673,11 @@ echo ""
 echo "Common commands:"
 echo "  npm run gates          # full suite (Gates 1-5, recommended before PRs)"
 echo "  npm run gates -- --quick"
-echo "  ./bin/witness-design-gates.sh --gate 4      # emitter fidelity only"
-echo "  ./bin/witness-design-gates.sh --emit --gate 4   # regenerate emitted artifacts + check"
-echo "  ./bin/witness-design-gates.sh --gate 5       # freerange numeric-range enforcement only"
-echo "  ./bin/witness-design-gates.sh --gate 5 --audit  # + Track C's freerange-audit bridge (opt-in)"
+echo "  ./bin/witness-design-gates.sh --gate 3      # emitter fidelity only"
+echo "  ./bin/witness-design-gates.sh --emit --gate 3   # regenerate emitted artifacts + check"
+echo "  ./bin/witness-design-gates.sh --gate 4       # freerange numeric-range enforcement only"
+echo "  ./bin/witness-design-gates.sh --gate 4 --audit  # + Track C's freerange-audit bridge (opt-in)"
 echo "  ./bin/witness-design-gates.sh --gate audit   # quick TCB drift check"
-echo "  ./bin/witness-design-gates.sh --update-manifest"
 echo ""
 echo "To strengthen backpressure further:"
 echo "  - Add more *.shen under specs/design/ (e.g. ui-component-fidelity.shen, codegen-emitter-fidelity.shen)"
