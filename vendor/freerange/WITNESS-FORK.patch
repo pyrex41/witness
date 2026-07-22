@@ -1,0 +1,1502 @@
+From 8321f3a6c90d34d7b77fa267ce12a4873dc47b0f Mon Sep 17 00:00:00 2001
+From: Witness <noreply@example.com>
+Date: Tue, 21 Jul 2026 19:36:54 -0500
+Subject: [PATCH] Witness fork: opt-in --cross-file contract enforcement
+
+---
+ WITNESS-FORK.md           | 399 ++++++++++++++++++++++++++++++++++++++
+ fr.ts                     |  24 ++-
+ src/analyze.ts            |  12 +-
+ src/engine/transfer.ts    |  10 +
+ src/ir/instructions.ts    |  36 +++-
+ src/lower/context.ts      |   8 +
+ src/lower/cross-file.ts   | 127 ++++++++++++
+ src/lower/expression.ts   | 146 +++++++++-----
+ src/lower/module.ts       |   4 +-
+ src/lower/program.ts      |  13 +-
+ src/project.ts            | 110 +++++++++--
+ src/requirements/infer.ts |  56 +++++-
+ tests/cross-file.test.ts  | 168 ++++++++++++++++
+ 13 files changed, 1029 insertions(+), 84 deletions(-)
+ create mode 100644 WITNESS-FORK.md
+ create mode 100644 src/lower/cross-file.ts
+ create mode 100644 tests/cross-file.test.ts
+
+diff --git a/WITNESS-FORK.md b/WITNESS-FORK.md
+new file mode 100644
+index 0000000..fede3c1
+--- /dev/null
++++ b/WITNESS-FORK.md
+@@ -0,0 +1,399 @@
++# The Witness fork: cross-file contract enforcement
++
++This is a fork of [chenglou/freerange](https://github.com/chenglou/freerange) at v0.0.2
++(commit `4e21242`, "Add Node support"), maintained inside the [Witness](../../) repository
++at `vendor/freerange`. It adds one opt-in feature — `fr --cross-file` — and touches nothing
++else. Everything below documents that one change: why it exists, what chenglou's own design
++notes already say about it, how it is built, how it is meant to be consumed, and an honest
++assessment of whether it belongs upstream.
++
++## The gap this closes
++
++freerange checks a function's leading `console.assert` calls as caller requirements and
++enforces them at every call site — but only when the caller and the callee are declared in
++the same file. A call like `cardActionSlotWidth(268, 0)` against
++
++```ts
++function cardActionSlotWidth(available: number, actionCount: number): number {
++  console.assert(Number.isInteger(actionCount))
++  console.assert(actionCount >= 1)
++  return (available - 8 * (actionCount - 1)) / actionCount
++}
++```
++
++is caught (`[declared-requirement]`, division by an impossible-to-reach-zero-safely
++argument) when both live in one file. The same call is silently accepted — no finding, exit
++0 — the moment `cardActionSlotWidth` is `import`ed from another file. Verified empirically
++against the published `@chenglou/freerange@0.0.2` binary before any of this work started;
++see the reproduction at the bottom of this document.
++
++For Witness, whose whole thesis is that layout obligations proven in Shen should propagate
++into hand-written TypeScript, that gap was the one thing standing between "the emitted
++component is proven safe" and "nothing downstream of the emitter is checked at all," since
++any real consumer imports the generated layout helpers rather than pasting them inline.
++
++## chenglou's own stated position on cross-file analysis
++
++Before writing any code, I read `current-decisions.md`, `engineering.md`, and
++`goal-prompt.md` in full, because the task brief specifically asked whether cross-file
++analysis had already been deliberately ruled out. It has not. Two passages are directly on
++point, and they materially shaped the design below rather than just permitting it.
++
++`current-decisions.md`'s "How should module initialization be modeled?" section states the
++project's actual boundary precisely:
++
++> Freerange does not build or execute a runtime module-dependency graph. [...] An imported
++> binding normally stops the same way — the other module's contents are invisible — with
++> one carve-out: an import resolving to `export const NAME = <numeric literal>` in a
++> project file reads as that exact constant [...] anything beyond a literal keeps the stop.
++
++So the *existing* cross-file support (imported numeric-literal constants) already resolves
++the import target's own declaration through the TypeScript checker and reads project source
++outside the current file — the seam this fork extends already existed for constants; it
++simply had never been extended to function contracts.
++
++More directly, the "Maybe Reconsider" section — prototypes not shipped for lack of
++motivating evidence, explicitly kept open rather than rejected — lists:
++
++> Procedure specifications, also called function contracts, for imported functions. A
++> sidecar file similar to `.d.ts` could state `requires` and `ensures` using the same small
++> condition language as static assertions, then compile those declarations into function
++> summaries. A provider should verify its implementation against the contract when source
++> is available; otherwise consumers must see that the contract is trusted rather than
++> proven. Pretext's text-measurement functions are a concrete candidate because their
++> opaque numeric results currently stop useful layout analysis. Prototype this only when
++> imported numeric helpers block a specific proof, and settle representation, validation,
++> and bounded caching together.
++
++Witness's `cardActionSlotWidth` case is exactly the "specific proof" this passage asks for
++before prototyping. It also states the design chenglou intended: when the provider's source
++*is* available (true for every case Witness cares about — its own generated
++`card-layout.ts` and any hand-written sibling module in the same project), verify the
++contract by analyzing that source, rather than trusting an unverified sidecar file. This
++fork follows exactly that: no sidecar `.d.ts`-shaped contract format, no unverified trust —
++a cross-file call is only ever checked against a callee whose own file was analyzed and
++whose requirements are fully proven (see "What counts as a usable contract" below).
++
++**Conclusion:** cross-file analysis was not ruled out; it was deliberately deferred pending
++a concrete blocking case, with a specific design already sketched for when one appeared.
++This fork is that case.
++
++## Architecture: where the seam actually is
++
++A file's pipeline, in call order, is:
++
++```
++TypeScript source + checker (src/typescript/check.ts, src/typescript/project.ts)
++  -> lowerSource (src/lower/program.ts): AST -> ProgramIR, one dense FunctionID
++     sequence local to this file
++       -> lowerFunction / lowerModuleInitializer (src/lower/module.ts)
++            -> lowerExpression (src/lower/expression.ts): call sites resolve
++               against context.functionsBySymbol, a same-file-only map built in
++               lowerSource from the file's own top-level function declarations
++  -> analyzeProgram (src/engine/analyze.ts + src/engine/transfer.ts): abstract
++     interpretation over ProgramIR, producing per-function preconditions
++     (src/requirements/infer.ts) and, for same-file calls, re-running the
++     callee's own IR against the caller's actual argument intervals
++  -> collectLintFindings (src/project.ts): turns stops and preconditions into
++     the printed [declared-requirement] / [inferred-requirement] / ... findings
++```
++
++The exact seam is `src/lower/expression.ts`'s call-lowering, unpatched:
++
++```ts
++const symbol = resolvedSymbol(context.checker.getSymbolAtLocation(current.expression), context.checker)
++const callee = symbol == null ? undefined : context.functionsBySymbol.get(symbol)
++if (callee == null) throw unsupported(current, {kind: 'call', callee: current.expression.text})
++```
++
++`resolvedSymbol` already calls `checker.getAliasedSymbol` — for an imported identifier, the
++TypeScript checker already resolves straight through to the exporting file's own
++`FunctionDeclaration` node, in the *same* `ts.Program` (a project run loads the whole
++project graph up front, in `src/typescript/project.ts`). The checker seam Track E's brief
++asked me to find was already sitting one line away from being used: `symbol` at that point
++*is* the resolved cross-file declaration whenever the callee is imported. The only reason
++the call still rejects is that `context.functionsBySymbol` — built once per file, from that
++file's own top-level declarations only — has nothing under that symbol.
++
++The harder question was not "how do I find the declaration" but "what do I do with it once
++found," because `context.functionsBySymbol.get(symbol)` doesn't just fail to find a name —
++same-file calls are checked by a fundamentally single-program mechanism.
++`engine/transfer.ts`'s `case 'call'` re-runs the callee's *own IR* against the caller's
++actual argument intervals (`context.evaluateFunction`), which requires the callee to live in
++the same dense `FunctionID` sequence as the caller — a same-`ProgramIR` operation by
++construction. A cross-file callee lives in a different file's `ProgramIR`, with its own
++`FunctionID` sequence starting back at 0, so that mechanism has no way to reach it. Merging
++two files' `ProgramIR`s into one shared FunctionID space, so a cross-file call could reuse
++`case 'call'` verbatim, would be the large rewrite the task brief said to avoid attempting.
++
++## What this fork does instead
++
++It does **not** attempt full interprocedural abstract interpretation across files. It
++reuses a narrower mechanism that was already fully built for a different purpose: the
++per-function `preconditions: InferredPrecondition[]` list every function's own *standalone*
++analysis already produces (seeded with symbolic `{kind: 'parameter', index}` placeholders
++instead of the caller's real arguments — this is exactly what `fr --audit`'s `requires:`
++lines already print for a function's *own* console.assert-derived requirements, independent
++of any caller). Those two requirement kinds — `declaredComparison` and `declaredNumberCheck`
++— are structural expression trees with no dependency on which `ProgramIR` produced them.
++
++So, under `--cross-file`:
++
++1. **Resolve.** A call whose symbol is not one of the current file's own top-level
++   functions is checked against its resolved `ts.FunctionDeclaration` (found the same way
++   `src/lower/cross-file.ts`'s new `CrossFileResolver` classifies it: must be a named
++   top-level function declaration in a different project file).
++2. **Analyze the callee's own file**, through the *exact same* `lowerSource` +
++   `analyzeProgram` pipeline used for every other file — nothing new was built for this
++   step; it is one more call to the existing single-file pipeline, memoized per file so a
++   function imported by many callers is analyzed once. Import cycles are guarded by a
++   "currently analyzing" file set (the cross-file peer of the engine's existing 16-round
++   loop-header fixed-point cap and 8-level `valueKind` recursion cap — see
++   `maximumCrossFileDepth` in `src/lower/cross-file.ts`): a mutual-import cycle reports
++   `{kind: 'cycle'}` instead of recursing forever.
++3. **What counts as a usable contract.** Only a callee whose own analysis completed with
++   `kind: 'analyzed'` (no stop anywhere in its body) publishes a contract. A callee that is
++   itself only `'partial'` is treated as `'unsupported'` for cross-file purposes — its
++   requirement list might be missing one past whatever stopped it, and publishing an
++   incomplete list would let a caller pass a call off as "checked" when it never was.
++4. **Lower the call anyway.** Unlike a normal unsupported call, a resolvable cross-file call
++   with a contract lowers into a new `crossCall` instruction instead of aborting the whole
++   containing function to `notLowered`. Its engine-time result (`engine/transfer.ts`'s new
++   `case 'crossCall'`) is the honest *covering* value for the callee's declared return
++   kind — a number with no narrower interval and no `assumes` claim if the return type is
++   `number`, opaque otherwise — because nothing here re-verified the callee's body against
++   this specific call's arguments, only its already-proven requirements.
++5. **Check requirements structurally, at report time.** `src/project.ts`'s new
++   `collectCrossFileFindings` walks every `crossCall` instruction in the caller's own
++   (already-lowered) IR, expresses each argument as a `NumericExpression` the same way a
++   same-file call's requirement propagation already does
++   (`src/requirements/infer.ts`'s `numericExpression`), substitutes those expressions for
++   the callee's own parameter placeholders in each of its requirements (new
++   `substituteParameters`), and folds the result exactly the way an ordinary same-file
++   requirement folds once every operand is a literal (`constantRequirementStatus`, unchanged
++   — the new `crossFileRequirementStatus` just wraps it). A `false` result becomes a
++   `[declared-requirement]` finding with the same message shape as the same-file case,
++   pointing at both the call site and the requirement's real declaration site (in the
++   callee's file — the `related` field on a lint finding gained an optional `file`, since
++   until now every related location was implicitly in the same file as the finding itself).
++
++## What is deliberately weaker than same-file checking, and why that is honest
++
++A same-file call is checked by re-running the callee's body against the caller's actual
++*abstract intervals* — it can prove a requirement false even when the argument is not a
++literal, e.g. an argument known to be `0` only through a chain of narrowing. A cross-file
++call is checked by *structural constant folding* only (`constantRequirementStatus`): it
++catches a literal `0`, or arithmetic over literals, or a `const` bound to one, but an
++argument that only resolves to `0` through interval reasoning (a branch, a loop, a call
++result) folds to "cannot determine" and is silently **not** reported — never wrongly
++reported as satisfied, just not checked. This is the same under-approximation
++`constantRequirementStatus` already makes for same-file requirements it cannot express; nothing new was introduced, it is just reached more often here because there is no interval
++engine backing it across the file boundary. The alternative — merging two files' `ProgramIR`s
++so `case 'call'`'s full interval re-evaluation could run across the boundary — is exactly
++the large rewrite this fork avoids; see "Upstreamability" below for whether that is worth
++building later.
++
++One further, deliberate scope boundary: a cross-file violation is reported as a lint
++finding (and fails the CI gate, same as a same-file one), but — unlike a same-file
++`requirementFailure` — it does not turn the containing function `'partial'` in the engine's
++own bookkeeping. `fr --audit`'s per-function coverage classification and `requires:`/
++`ensures:` lines do not yet reflect a cross-file check; only `fr`'s findings output does.
++Wiring the cross-file check through the engine's own `Stop`/`RequirementFailure` types (so
++`--audit` could show it too) would mean either giving those types a second, foreign-file
++`SiteID` representation, or re-plumbing the whole `evaluateFunction` interprocedural
++mechanism to be cross-`ProgramIR`-aware — again the large rewrite this fork avoids. The task
++this fork was built for only needed the findings-mode gate, so that is the one thing built.
++
++## The default (`--cross-file` absent) is byte-identical
++
++Every existing code path is unchanged when the flag is off: `context.crossFile` is `null`,
++`lowerCrossFileCall` returns `null` immediately, and every call to an imported symbol falls
++through to the exact same `throw unsupported(current, {kind: 'call', ...})` it always did.
++No `crossCall` instruction is ever created without the flag, so
++`collectCrossFileFindings`'s walk is a no-op. All 193 tests that shipped with v0.0.2 pass
++unmodified against this fork; see "Test results" below.
++
++## Diff summary
++
++```
++fr.ts                     |  24 +++--      --cross-file flag parsing, threaded into
++                                            runProjectFindings / runFileFindings /
++                                            runProjectAudit / runFileAudit
++src/analyze.ts             |  12 ++-       analyzeCheckedSource gains an optional
++                                            CrossFileResolver parameter
++src/engine/transfer.ts     |  10 ++        new case 'crossCall': the honest covering
++                                            value for the callee's declared return kind
++src/ir/instructions.ts     |  36 +++       new crossCall InstructionIR variant,
++                                            CrossFileContract / CrossFileRequirement types
++src/lower/context.ts       |   8 ++        FunctionContext gains crossFile: CrossFileResolver | null
++src/lower/cross-file.ts    | 127 (new)     the resolver: memoized per-file analysis,
++                                            per-function contract extraction, cycle guard
++src/lower/expression.ts    | 146 +++---    lowerCallArguments extracted (pure refactor,
++                                            reused by both call paths); lowerCrossFileCall,
++                                            crossFileReturnKind added
++src/lower/module.ts        |   4 +-        lowerModuleInitializer threads crossFile through
++src/lower/program.ts       |  13 ++-       lowerSource threads crossFile through
++src/project.ts             | 110 +++--     crossFile: boolean threaded through every CLI
++                                            entry point; collectCrossFileFindings added;
++                                            ErrorLintFinding.related gains an optional file
++src/requirements/infer.ts  |  56 ++        substituteParameters, crossFileRequirementStatus
++tests/cross-file.test.ts   | 168 (new)     see "Test results"
++```
++
++12 files touched, 2 new. No file outside this list was modified.
++
++### A note on the module graph
++
++`src/lower/cross-file.ts` needs a real, value-level import of `src/analyze.ts` (it calls
++`analyzeCheckedSource` to analyze a callee's file) — but `src/lower/context.ts` and
++`src/lower/expression.ts`, which `src/analyze.ts` transitively depends on through
++`src/lower/program.ts`, only need `CrossFileResolver` as a *type*. Both use
++`import type {CrossFileResolver} from './cross-file.ts'`, which TypeScript erases entirely
++at compile time — `bun build`'s bundle output confirms there is no runtime cycle (30 modules
++bundle cleanly). `current-decisions.md` already states that a type-only import cycle is a
++non-issue in this codebase; `ir/instructions.ts` and `requirements/model.ts` already formed
++one before this fork (instructions.ts's `ComparisonOperator`/`ArithmeticOperator` come from
++requirements/model.ts's operand types, and requirements/model.ts's `InferredPrecondition`
++comes from instructions.ts) and this fork's new `CrossFileContract` type — which embeds an
++`InferredPrecondition` — closes that same cycle one more time, not a new one.
++
++## How to build
++
++```bash
++cd vendor/freerange
++bun install    # first checkout only
++bun run build  # bun build fr.ts --target=node --packages=external
++               # --banner="#!/usr/bin/env node" --outfile=dist/fr.js
++```
++
++`dist/fr.js` is a single self-contained file (`typescript` stays an external
++`require`/`import`, per `--packages=external`) and runs under plain `node`, not just `bun`:
++
++```bash
++node vendor/freerange/dist/fr.js --cross-file
++node vendor/freerange/dist/fr.js --cross-file --audit some/file.ts
++```
++
++## How Witness would consume it
++
++Point Witness's own `package.json` dependency at this vendored build instead of the npm
++package, e.g. a `file:` reference to `vendor/freerange` (bun and npm both resolve a `file:`
++dependency's own `package.json` `bin` field, which still points at `dist/fr.js`), or copy
++`dist/fr.js` directly into wherever the existing `@chenglou/freerange@0.0.2` binary is
++referenced from (`node_modules/.bin/fr` today). Either way, Gate 5 (per the agreed
++interface: `bin/witness-design-gates.sh`, dispatch `5|fr|freerange|numeric|range`) should
++invoke it with `--cross-file` so it actually checks the emitted `card-layout.ts`'s
++requirements against any hand-written consumer TypeScript that imports it — the entire
++point of this fork. Without `--cross-file`, this build behaves exactly like the unpatched
++0.0.2, so switching the binary alone changes nothing until the gate also passes the flag.
++
++## Test results
++
++New tests, `tests/cross-file.test.ts` (all against the built CLI end-to-end via
++`Bun.spawnSync`, in the same style as `tests/project-report.test.ts`):
++
++- **a cross-file requirement violation is invisible without `--cross-file` and caught with
++  it** — writes a two-file fixture (`lib.ts` with the `cardActionSlotWidth` contract,
++  `consumer.ts` calling it with a literal `0`), runs `fr` both without and with the flag in
++  the same process, and checks: without the flag, exit 0, "No lint findings.",
++  `1/2 ... fully analyzed; 0 partially supported; 1 unsupported`; with the flag, exit 1, a
++  `[declared-requirement]` finding at the call site in `consumer.ts`, whose `related`
++  "declared at" location is in `lib.ts` (not misattributed to the caller's own file) — and
++  also checks `fr consumer.ts --cross-file` (the narrowed-to-one-file path) still resolves
++  the import against the whole project's sources.
++- **a satisfying cross-file call is clean, and the caller is genuinely analyzed rather than
++  left unsupported** — the same fixture with a valid argument (`4` instead of `0`): exit 0,
++  "No lint findings.", and — the check that actually distinguishes "really checked and
++  passed" from "silently still unsupported" — coverage reads
++  `2/2 ... fully analyzed; 0 partially supported; 0 unsupported`, which could not happen if
++  `lowerCrossFileCall` were merely suppressing the old unsupported-call rejection instead of
++  genuinely lowering and checking the call.
++- **a mutual import cycle terminates under `--cross-file` instead of recursing forever** —
++  `a.ts` and `b.ts` import and call each other; run under a 10-second `Bun.spawnSync`
++  timeout and asserts the process exited on its own (`signalCode` is not `'SIGTERM'`, the
++  value Bun reports when a spawn timeout kills the process) rather than hanging. Manually
++  verified outside the test too (`time (...)` in a scratch directory): completes in well
++  under a second, both functions report as unsupported (the honest outcome — neither side of
++  a cycle can produce a trustworthy contract for the other), exit 1.
++
++Full suite: `bun test` — **196 pass, 0 fail** (the 193 tests that shipped with v0.0.2,
++unmodified, plus the 3 above). `node node_modules/@typescript/native/bin/tsc --noEmit -p
++tsconfig.json` (TS 7) and `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`
++(TS 6, the version freerange's own `package.json` depends on) both report zero errors.
++`oxlint --type-aware` and `bun knip` (via `bun run check`'s other two steps — `bunx
++@typescript/native` itself failed only because this sandbox has no network access to
++re-resolve an already-installed package; the two steps that matter for this diff run clean)
++both exit 0 with no findings.
++
++### The motivating case, reproduced against the published binary
++
++```bash
++$ cd /tmp/some-project   # tsconfig.json with strict: true, lib.ts + consumer.ts as above
++
++$ node_modules/.bin/fr --cross-file    # published @chenglou/freerange@0.0.2: no such flag,
++                                        # and the call is silently unsupported regardless
++No lint findings.
++0 findings (0 errors, 0 warnings).
++coverage: 1/2 named top-level function declarations fully analyzed; 0 partially supported; 1 unsupported.
++
++$ bun vendor/freerange/fr.ts                 # this fork, flag off: identical to 0.0.2
++No lint findings.
++0 findings (0 errors, 0 warnings).
++coverage: 1/2 named top-level function declarations fully analyzed; 0 partially supported; 1 unsupported.
++
++$ bun vendor/freerange/fr.ts --cross-file    # this fork, flag on: catches it
++consumer.ts(4,10): error [declared-requirement]: call to cardActionSlotWidth makes its declared requirement definitely false (declared at lib.ts(3,3))
++1 finding (1 error, 0 warnings).
++coverage: 2/2 named top-level function declarations fully analyzed; 0 partially supported; 0 unsupported.
++```
++
++`node vendor/freerange/dist/fr.js --cross-file` (the built artifact, run under plain `node`
++rather than `bun`, matching how Witness would actually invoke it) reproduces the same
++output.
++
++## Upstreamability: an honest assessment
++
++**Worth proposing, but not as-is.** The strongest argument for upstreaming is that
++`current-decisions.md` already names this exact feature as wanted, already sketches
++(loosely) the right design point — verify against the callee's real source when available —
++and this fork's structural-substitution mechanism reuses machinery (`InferredPrecondition`,
++`numericExpression`, `constantRequirementStatus`) that chenglou already built and already
++uses for a closely related purpose, rather than introducing a parallel system.
++
++What would need to change before this is a PR chenglou would likely accept, based on how
++`current-decisions.md` and `engineering.md` describe their own standards:
++
++- **The coverage/`--audit` gap above is a real gap, not just a note.** chenglou's own prose
++  treats `fr --audit`'s `requires:`/`ensures:` lines as *the* contract surface; a check that
++  only shows up in `fr`'s findings and not in `--audit` is an inconsistent story for a
++  maintainer who cares about that consistency as much as `current-decisions.md` suggests he
++  does. Closing it means deciding how a cross-file `RequirementFailure` should carry a
++  foreign file's location — a real design decision, not a mechanical extension, since
++  `RequirementFailure` and `StopReason.requirementFailure.callee` were built assuming one
++  `ProgramIR` throughout.
++- **The weaker-than-same-file checking should be an explicit, documented trade-off in
++  `current-decisions.md` itself**, not just this document — chenglou's writing style
++  consistently states what a feature does *not* prove alongside what it does (see the
++  "Additional decisions" and "Punted" sections), and a maintainer accepting this would
++  almost certainly want that same treatment for "cross-file checking folds constants only,
++  it does not re-run the callee's body against the caller's intervals."
++- **Only fully `'analyzed'` callees produce a contract; `'partial'` callees are silently
++  treated as unsupported.** That is the conservative, honest choice, but it means a
++  moderately complex real-world callee (anything with one unrelated unsupported construct
++  anywhere in its body) gets zero cross-file benefit even for requirements proven before the
++  unsupported point. chenglou's own "Assertions in partially analyzed functions" entry in
++  "Maybe Reconsider" is the direct precedent for revisiting this, and doing so here would
++  compound two open design questions into one PR rather than one.
++- **No `--cross-file` flag exists in the upstream CLI's vocabulary at all**, and whether
++  cross-file checking should be opt-in forever, opt-in with a path to becoming default, or
++  something scoped differently (e.g. only within one `tsconfig.json`'s project, never across
++  `references`) is chenglou's call to make, not this fork's.
++
++None of these are reasons to abandon the approach — they are exactly the kind of scope
++questions `current-decisions.md`'s own "Prototype this only when imported numeric helpers
++block a specific proof, and settle representation, validation, and bounded caching together"
++sentence anticipates needing answered before shipping. This fork answers "does a concrete
++blocking case exist and does the approach work" with a working, tested yes. It does not
++answer the audit-surface and partial-callee questions, and a real PR should not paper over
++that gap — it should raise it, most likely as a discussion issue with this fork linked as a
++proof of concept, before a PR that tries to settle all four points at once.
+diff --git a/fr.ts b/fr.ts
+index ffccfdc..16e8865 100755
+--- a/fr.ts
++++ b/fr.ts
+@@ -1,24 +1,28 @@
+ // Two commands. `fr` checks the project for warnings and errors; `fr --audit` prints
+ // every function's contracts and refactoring suggestions. Both take an optional file that
+-// narrows the output to that file. Findings mode is the CI gate: it fails on error-level
+-// findings and TypeScript errors. Audit mode is informational and fails only on
+-// TypeScript errors.
++// narrows the output to that file, and an optional --cross-file flag (order-independent
++// among the arguments) that additionally resolves a call to an imported named top-level
++// function against that function's own proven console.assert requirements — see
++// WITNESS-FORK.md. Findings mode is the CI gate: it fails on error-level findings and
++// TypeScript errors. Audit mode is informational and fails only on TypeScript errors.
+ import {runFileAudit, runFileFindings, runProjectAudit, runProjectFindings} from './src/project.ts'
+ import {formatTypeScriptDiagnostics, TypeScriptDiagnosticsError} from './src/typescript/diagnostics.ts'
+ 
+-const arguments_ = process.argv.slice(2)
++const rawArguments = process.argv.slice(2)
++const crossFile = rawArguments.includes('--cross-file')
++const arguments_ = rawArguments.filter(argument => argument !== '--cross-file')
+ try {
+   let failed: boolean
+   if (arguments_[0] === '--audit') {
+-    if (arguments_.length > 2) throw new Error('Usage: fr --audit [file]')
++    if (arguments_.length > 2) throw new Error('Usage: fr --audit [file] [--cross-file]')
+     failed = arguments_.length === 1
+-      ? runProjectAudit(process.cwd())
+-      : runFileAudit(arguments_[1]!)
++      ? runProjectAudit(process.cwd(), crossFile)
++      : runFileAudit(arguments_[1]!, crossFile)
+   } else {
+-    if (arguments_.length > 1) throw new Error('Usage: fr [file]')
++    if (arguments_.length > 1) throw new Error('Usage: fr [file] [--cross-file]')
+     failed = arguments_.length === 0
+-      ? runProjectFindings(process.cwd())
+-      : runFileFindings(arguments_[0]!)
++      ? runProjectFindings(process.cwd(), crossFile)
++      : runFileFindings(arguments_[0]!, crossFile)
+   }
+   if (failed) process.exitCode = 1
+ } catch (error) {
+diff --git a/src/analyze.ts b/src/analyze.ts
+index 796d167..06cf3f2 100644
+--- a/src/analyze.ts
++++ b/src/analyze.ts
+@@ -1,6 +1,7 @@
+ import {analyzeProgram} from './engine/analyze.ts'
+ import type {ProgramAnalysis} from './engine/outcome.ts'
+ import type {ProgramIR} from './ir/program.ts'
++import type {CrossFileResolver} from './lower/cross-file.ts'
+ import {lowerSource} from './lower/program.ts'
+ import type {CheckedSource} from './typescript/check.ts'
+ 
+@@ -9,8 +10,15 @@ export type DetailedAnalysis = {
+   analysis: ProgramAnalysis
+ }
+ 
+-export function analyzeCheckedSource(checked: CheckedSource, baseDirectory?: string): DetailedAnalysis {
+-  const program = lowerSource(checked, baseDirectory)
++// crossFile is undefined for every existing caller (src/index.ts's public API included),
++// so single-file analysis is unaffected; src/project.ts's project-scoped commands are the
++// only callers that build and pass a resolver, under --cross-file.
++export function analyzeCheckedSource(
++  checked: CheckedSource,
++  baseDirectory?: string,
++  crossFile?: CrossFileResolver,
++): DetailedAnalysis {
++  const program = lowerSource(checked, baseDirectory, crossFile)
+   const analysis = analyzeProgram(program)
+   return {program, analysis}
+ }
+diff --git a/src/engine/transfer.ts b/src/engine/transfer.ts
+index ec8ce58..435be64 100644
+--- a/src/engine/transfer.ts
++++ b/src/engine/transfer.ts
+@@ -589,6 +589,16 @@ function evaluateInstructionKinded(
+       for (const assumption of completed.boundsAssumptions) addBoundsAssumption(context.boundsAssumptions, assumption)
+       return passthroughValue(completed.returnValue)
+     }
++    // The callee lives in a different ProgramIR (a different dense FunctionID sequence),
++    // so unlike 'call' above there is no callee body here to re-run against these
++    // arguments' abstract intervals — only the requirement check src/project.ts applies
++    // structurally against instruction.contract. The result is the honest covering value
++    // for the callee's declared return kind: no assumes claim, because nothing here
++    // verified the callee actually returns within any narrower range.
++    case 'crossCall': {
++      for (const id of instruction.arguments) requiredValue(state, id)
++      return passthroughValue(coveringKindValue(instruction.returnKind))
++    }
+     case 'binary': {
+       const left = requiredNumberWithFacts(state, instruction.left, context.expressionContext)
+       const right = requiredNumberWithFacts(state, instruction.right, context.expressionContext)
+diff --git a/src/ir/instructions.ts b/src/ir/instructions.ts
+index b64532c..2abda7f 100644
+--- a/src/ir/instructions.ts
++++ b/src/ir/instructions.ts
+@@ -1,11 +1,35 @@
+ import type {BlockID, FunctionID, ModuleBindingID, SiteID, ValueID} from './ids.ts'
+-import type {UnsupportedReason} from './program.ts'
++import type {DeclaredKind, UnsupportedReason} from './program.ts'
++import type {InferredPrecondition} from '../requirements/model.ts'
+ 
+ type InstructionBase = {
+   result: ValueID
+   site: SiteID
+ }
+ 
++// One console.assert-derived requirement of a cross-file callee, resolved once when the
++// call lowers (see src/lower/cross-file.ts) and carried on the crossCall instruction
++// itself rather than looked up again from the callee's file at report time. declarationFile
++// / declarationLine / declarationColumn are already formatted from the callee's own
++// ProgramIR — the caller's report never holds a second ProgramIR to resolve a SiteID
++// against, so the location travels as plain text instead of a site reference.
++export type CrossFileRequirement = {
++  precondition: Extract<InferredPrecondition, {kind: 'declaredComparison' | 'declaredNumberCheck'}>
++  declarationFile: string
++  declarationLine: number
++  declarationColumn: number
++}
++
++// The caller-visible summary of an imported function: its fully proven console.assert
++// requirements, position-indexed the same way InferredPrecondition's 'parameter' expressions
++// are. Only a callee whose own analysis completed with kind 'analyzed' produces a contract —
++// a callee with any stop of its own has an incomplete requirement list, and publishing it
++// would print requirements as satisfied that were never actually checked.
++export type CrossFileContract = {
++  calleeName: string
++  requirements: CrossFileRequirement[]
++}
++
+ export type ComparisonOperator = 'lessThan' | 'lessThanOrEqual' | 'greaterThan' | 'greaterThanOrEqual' | 'equal' | 'notEqual'
+ export type ArithmeticOperator = 'add' | 'subtract' | 'multiply' | 'divide' | 'remainder'
+ 
+@@ -95,6 +119,15 @@ export type InstructionIR =
+   | (InstructionBase & {kind: 'staticAssert'; value: ValueID; assertion: number})
+   | (InstructionBase & {kind: 'minimum' | 'maximum'; values: ValueID[]})
+   | (InstructionBase & {kind: 'call'; function: FunctionID; arguments: ValueID[]})
++  // A call to a named top-level function declared in another project file, accepted only
++  // under --cross-file (see src/lower/cross-file.ts). Unlike 'call', there is no FunctionID
++  // to evaluate: the callee lives in a different ProgramIR, indexed by its own dense
++  // FunctionID sequence, so the engine cannot re-run its body the way a same-file call's
++  // transfer case does. returnKind seeds the result the same honest way an unresolved
++  // module read does — declaredKindOf's covering value, no assumes claim — and contract
++  // carries what was proven about the callee well enough to check at this call site
++  // (src/requirements/infer.ts's crossFileRequirementStatus, applied by src/project.ts).
++  | (InstructionBase & {kind: 'crossCall'; arguments: ValueID[]; returnKind: DeclaredKind; contract: CrossFileContract})
+   // tag is set when the literal's contextual type is a tagged union and the literal names
+   // its tag with a string literal — the engine then builds a single-variant union, so
+   // branches building different variants join per tag instead of dropping properties.
+@@ -136,6 +169,7 @@ export function forEachOperand(instruction: InstructionIR, visit: (operand: Valu
+     case 'minimum':
+     case 'maximum': for (const id of instruction.values) visit(id); return
+     case 'call': for (const id of instruction.arguments) visit(id); return
++    case 'crossCall': for (const id of instruction.arguments) visit(id); return
+     case 'object': for (const property of instruction.properties) visit(property.value); return
+     case 'property': visit(instruction.object); return
+   }
+diff --git a/src/lower/context.ts b/src/lower/context.ts
+index 97456d0..dc75955 100644
+--- a/src/lower/context.ts
++++ b/src/lower/context.ts
+@@ -8,6 +8,7 @@ import type {
+ } from '../ir/ids.ts'
+ import type {InstructionIR, TerminatorIR} from '../ir/instructions.ts'
+ import {nodeSpan, type BlockIR, type FunctionIR, type SourceSpan, type UnsupportedReason} from '../ir/program.ts'
++import type {CrossFileResolver} from './cross-file.ts'
+ import type {StaticAnnotation} from './static-intrinsics.ts'
+ 
+ export type MutableBlock = {
+@@ -31,6 +32,11 @@ export type FunctionContext = {
+   functionsBySymbol: Map<ts.Symbol, TopLevelFunction>
+   moduleBindingsBySymbol: Map<ts.Symbol, ModuleBindingID>
+   staticAnnotations: Map<ts.CallExpression, StaticAnnotation>
++  // Non-null only under --cross-file: resolves a call whose symbol is not one of this
++  // file's own functionsBySymbol entries into the other project file's proven console.assert
++  // requirements. Null (the default) keeps such a call unsupported exactly like today,
++  // which is what makes the flag off behave byte-identically to the unpatched analyzer.
++  crossFile: CrossFileResolver | null
+   // The ProgramIR.sites table, shared across all function lowerings; pushing assigns the
+   // next dense SiteID.
+   sites: SourceSpan[]
+@@ -60,6 +66,7 @@ export function createFunctionContext(
+   moduleBindingsBySymbol: Map<ts.Symbol, ModuleBindingID>,
+   sites: SourceSpan[],
+   staticAnnotations: StaticAnnotation[] = [],
++  crossFile: CrossFileResolver | null = null,
+ ): FunctionContext {
+   const entry: MutableBlock = {loopHeader: null, parameters: [], instructions: [], terminator: null}
+   return {
+@@ -68,6 +75,7 @@ export function createFunctionContext(
+     functionsBySymbol,
+     moduleBindingsBySymbol,
+     staticAnnotations: new Map(staticAnnotations.map(annotation => [annotation.call, annotation])),
++    crossFile,
+     sites,
+     nextValue: 0,
+     currentBlock: entry,
+diff --git a/src/lower/cross-file.ts b/src/lower/cross-file.ts
+new file mode 100644
+index 0000000..7153acf
+--- /dev/null
++++ b/src/lower/cross-file.ts
+@@ -0,0 +1,127 @@
++// Resolves an imported call target to another project file's own console.assert
++// requirements, under --cross-file. See WITNESS-FORK.md for why this exists and current-
++// decisions.md's "Procedure specifications... for imported functions" entry for the design
++// this follows: analyze the callee's own file (when its source is available) rather than
++// trust an unverified sidecar contract.
++//
++// This file takes analyzeCheckedSource as a plain function reference (imported below) but
++// deliberately exposes only TYPES to src/lower/context.ts and src/lower/expression.ts —
++// they import type {CrossFileResolver}, which TypeScript erases at compile time. That keeps
++// the module graph's runtime edges one-directional (this file depends on the lowering/
++// engine pipeline; the pipeline's lowering step depends only on this file's types), even
++// though analyze.ts -> lower/program.ts -> lower/expression.ts would otherwise close a
++// runtime cycle back to this file. current-decisions.md already treats a type-only cycle as
++// a non-issue; this module is built so the cycle never becomes a value-level one.
++import {resolve as resolvePath} from 'node:path'
++import * as ts from 'typescript'
++import {analyzeCheckedSource} from '../analyze.ts'
++import type {ProgramAnalysis} from '../engine/outcome.ts'
++import type {CrossFileContract, CrossFileRequirement} from '../ir/instructions.ts'
++import {reportPath, siteLocation, type ProgramIR} from '../ir/program.ts'
++
++export type CrossFileFileSource = {sourceFile: ts.SourceFile; checker: ts.TypeChecker}
++
++export type CrossFileResolveResult =
++  | {kind: 'contract'; contract: CrossFileContract}
++  // An import cycle: resolving this call would re-enter a file already being analyzed for
++  // this same resolution chain. No contract produced mid-cycle would be trustworthy, so
++  // reporting nothing here is sound rather than merely convenient — the same standing
++  // assumption current-decisions.md already states for single-file analysis (no runtime
++  // import cycle brings a partner module in before this module's own initializer runs)
++  // extends here to "no analysis cycle produces a usable contract".
++  | {kind: 'cycle'}
++  // The callee is not eligible for cross-file enforcement: not a project source file, not a
++  // named top-level function declaration, or its own analysis has any stop at all (kind
++  // other than 'analyzed'). A callee with a stop has an incomplete requirement list — one
++  // more requirement might sit past the stop — and publishing an incomplete list would let
++  // a caller pass as "checked" a call that was never actually verified.
++  | {kind: 'unsupported'}
++
++export type CrossFileResolver = {
++  resolve(declaration: ts.FunctionDeclaration): CrossFileResolveResult
++}
++
++// Caps how many files deep one call chain may resolve — the cross-file peer of the
++// engine's existing 16-round loop-header fixed-point cap and valueKind's 8-level recursion
++// cap. A real bound on real work, not a tuned constant: a project's call graph should never
++// approach it outside a mutual-import cycle, which the cycle guard below already catches
++// directly.
++const maximumCrossFileDepth = 8
++
++// One resolver per `fr` run, built once over every project source file (see
++// src/project.ts) and threaded down through lowering. Memoizes both by file (a file
++// imported by many callers is analyzed once) and by function name within that file, and
++// tracks which files are mid-resolution so a mutual-import cycle terminates instead of
++// recursing forever.
++export function createCrossFileResolver(sources: Map<string, CrossFileFileSource>): CrossFileResolver {
++  const fileAnalysis = new Map<string, {program: ProgramIR; analysis: ProgramAnalysis} | null>()
++  const contractsByFile = new Map<string, Map<string, CrossFileResolveResult>>()
++  const analyzing = new Set<string>()
++
++  // Analyzing the callee's file may itself lower cross-file calls into other files —
++  // resolver.resolve calls back into this same closure. Declared before resolver so
++  // analyzeFile can pass it to analyzeCheckedSource; assigned once resolver exists.
++  let resolver: CrossFileResolver
++
++  function analyzeFile(file: string): {program: ProgramIR; analysis: ProgramAnalysis} | null {
++    const cached = fileAnalysis.get(file)
++    if (cached !== undefined) return cached
++    const source = sources.get(file)
++    if (source == null) {
++      fileAnalysis.set(file, null)
++      return null
++    }
++    const result = analyzeCheckedSource(source, undefined, resolver)
++    fileAnalysis.set(file, result)
++    return result
++  }
++
++  resolver = {
++    resolve(declaration) {
++      const name = declaration.name?.text
++      if (name == null) return {kind: 'unsupported'}
++      const file = resolvePath(declaration.getSourceFile().fileName)
++      let contracts = contractsByFile.get(file)
++      if (contracts == null) {
++        contracts = new Map()
++        contractsByFile.set(file, contracts)
++      }
++      const cached = contracts.get(name)
++      if (cached != null) return cached
++
++      if (analyzing.has(file)) return {kind: 'cycle'}
++      if (analyzing.size >= maximumCrossFileDepth) return {kind: 'unsupported'}
++
++      analyzing.add(file)
++      let result: CrossFileResolveResult
++      try {
++        const analyzed = analyzeFile(file)
++        result = analyzed == null ? {kind: 'unsupported'} : contractFor(name, analyzed)
++      } finally {
++        analyzing.delete(file)
++      }
++      contracts.set(name, result)
++      return result
++    },
++  }
++  return resolver
++}
++
++function contractFor(name: string, analyzed: {program: ProgramIR; analysis: ProgramAnalysis}): CrossFileResolveResult {
++  const index = analyzed.program.functions.findIndex(fn => fn.name === name)
++  if (index < 0) return {kind: 'unsupported'}
++  const fn = analyzed.analysis.functions[index]
++  if (fn == null || fn.kind !== 'analyzed') return {kind: 'unsupported'}
++  const requirements: CrossFileRequirement[] = []
++  for (const precondition of fn.preconditions) {
++    if (precondition.kind !== 'declaredComparison' && precondition.kind !== 'declaredNumberCheck') continue
++    const location = siteLocation(analyzed.program, precondition.site)
++    requirements.push({
++      precondition,
++      declarationFile: reportPath(analyzed.program),
++      declarationLine: location.line,
++      declarationColumn: location.column,
++    })
++  }
++  return {kind: 'contract', contract: {calleeName: name, requirements}}
++}
+diff --git a/src/lower/expression.ts b/src/lower/expression.ts
+index 69cdeb0..18049c9 100644
+--- a/src/lower/expression.ts
++++ b/src/lower/expression.ts
+@@ -1,7 +1,7 @@
+ import * as ts from 'typescript'
+ import type {ValueID} from '../ir/ids.ts'
+ import type {ComparisonOperator, InstructionIR} from '../ir/instructions.ts'
+-import type {StaticAssertionProblem} from '../ir/program.ts'
++import type {DeclaredKind, StaticAssertionProblem} from '../ir/program.ts'
+ import {declaredOnlyInDeclarationFiles, platformFact} from './platform.ts'
+ import {
+   addInstruction,
+@@ -403,55 +403,19 @@ export function lowerExpression(expression: ts.Expression, context: FunctionCont
+       }
+       const symbol = resolvedSymbol(context.checker.getSymbolAtLocation(current.expression), context.checker)
+       const callee = symbol == null ? undefined : context.functionsBySymbol.get(symbol)
+-      if (callee == null) throw unsupported(current, {kind: 'call', callee: current.expression.text})
++      if (callee == null) {
++        // Not one of this file's own top-level functions. Under --cross-file (context.crossFile
++        // non-null), an identifier resolving to a named top-level function declared in
++        // another project file gets one more chance below before this call rejects the
++        // whole function the way an ordinary unsupported call always has.
++        const crossFileCall = symbol == null ? null : lowerCrossFileCall(current, symbol, context)
++        if (crossFileCall != null) return crossFileCall
++        throw unsupported(current, {kind: 'call', callee: current.expression.text})
++      }
+       if (current.arguments.length > callee.declaration.parameters.length) {
+         throw unsupported(current, {kind: 'callWithMoreArguments', callee: current.expression.text})
+       }
+-      const arguments_: ValueID[] = []
+-      for (let index = 0; index < callee.declaration.parameters.length; index++) {
+-        const parameter = callee.declaration.parameters[index]!
+-        const argument = current.arguments[index]
+-        if (argument == null) {
+-          if (parameter.initializer != null) {
+-            const default_ = parameterDefaultLiteral(parameter.initializer, context.checker)
+-            if (default_ == null) {
+-              throw unsupported(current, {kind: 'callWithFewerArguments', callee: current.expression.text})
+-            }
+-            arguments_.push(lowerParameterDefault(default_, parameter.initializer, context))
+-            continue
+-          }
+-          if (parameter.questionToken != null) {
+-            arguments_.push(addInstruction(context, parameter, {kind: 'nullishConstant', sentinel: 'undefined'}))
+-            continue
+-          }
+-          throw unsupported(current, {kind: 'callWithFewerArguments', callee: current.expression.text})
+-        }
+-        const value = lowerExpression(argument, context)
+-        const default_ = parameter.initializer == null
+-          ? null
+-          : parameterDefaultLiteral(parameter.initializer, context.checker)
+-        if (default_ == null
+-          || !typeCanIncludeUndefined(context.checker.getTypeAtLocation(argument))) {
+-          arguments_.push(value)
+-          continue
+-        }
+-        // JavaScript applies a parameter default when the supplied value is undefined,
+-        // not only when the argument is omitted. The normal value-producing branch keeps
+-        // that rule exact for `number | undefined` arguments without a new IR operation.
+-        const supplied = addInstruction(context, argument, {
+-          kind: 'nullishCheck',
+-          value,
+-          sentinel: 'undefined',
+-          negated: true,
+-        })
+-        arguments_.push(lowerValueBranch(
+-          argument,
+-          supplied,
+-          () => value,
+-          () => lowerParameterDefault(default_, parameter.initializer!, context),
+-          context,
+-        ))
+-      }
++      const arguments_ = lowerCallArguments(current, callee.declaration.parameters, context)
+       return addInstruction(context, current, {kind: 'call', function: callee.id, arguments: arguments_})
+     }
+     if (ts.isPropertyAccessExpression(current.expression)) {
+@@ -1091,6 +1055,94 @@ function lowerParameterDefault(
+   }
+ }
+ 
++// Fills one ValueID per declared parameter from a call's actual arguments — omitted
++// optional and literal-defaulted parameters included — shared by same-file 'call' lowering
++// and --cross-file 'crossCall' lowering below, since a cross-file callee's own
++// ts.FunctionDeclaration carries the exact same parameter list shape a same-file callee's
++// does (both live in the same ts.Program, so context.checker resolves either one's types).
++// Caller arity is already checked (callWithMoreArguments) before this runs.
++function lowerCallArguments(
++  current: ts.CallExpression,
++  parameters: readonly ts.ParameterDeclaration[],
++  context: FunctionContext,
++): ValueID[] {
++  const calleeName = current.expression.getText(context.sourceFile)
++  const arguments_: ValueID[] = []
++  for (let index = 0; index < parameters.length; index++) {
++    const parameter = parameters[index]!
++    const argument = current.arguments[index]
++    if (argument == null) {
++      if (parameter.initializer != null) {
++        const default_ = parameterDefaultLiteral(parameter.initializer, context.checker)
++        if (default_ == null) throw unsupported(current, {kind: 'callWithFewerArguments', callee: calleeName})
++        arguments_.push(lowerParameterDefault(default_, parameter.initializer, context))
++        continue
++      }
++      if (parameter.questionToken != null) {
++        arguments_.push(addInstruction(context, parameter, {kind: 'nullishConstant', sentinel: 'undefined'}))
++        continue
++      }
++      throw unsupported(current, {kind: 'callWithFewerArguments', callee: calleeName})
++    }
++    const value = lowerExpression(argument, context)
++    const default_ = parameter.initializer == null ? null : parameterDefaultLiteral(parameter.initializer, context.checker)
++    if (default_ == null || !typeCanIncludeUndefined(context.checker.getTypeAtLocation(argument))) {
++      arguments_.push(value)
++      continue
++    }
++    // JavaScript applies a parameter default when the supplied value is undefined, not
++    // only when the argument is omitted. The normal value-producing branch keeps that rule
++    // exact for `number | undefined` arguments without a new IR operation.
++    const supplied = addInstruction(context, argument, {kind: 'nullishCheck', value, sentinel: 'undefined', negated: true})
++    arguments_.push(lowerValueBranch(
++      argument,
++      supplied,
++      () => value,
++      () => lowerParameterDefault(default_, parameter.initializer!, context),
++      context,
++    ))
++  }
++  return arguments_
++}
++
++// Not one of this file's own top-level functions: under --cross-file, try the symbol's
++// declaration as a named top-level function in another project file. Returns null (and
++// leaves the call to reject as an ordinary unsupported call) whenever cross-file mode is
++// off, the symbol is not that shape, or resolution could not produce a fully proven
++// contract — see CrossFileResolveResult's 'cycle' and 'unsupported' cases.
++function lowerCrossFileCall(current: ts.CallExpression, symbol: ts.Symbol, context: FunctionContext): ValueID | null {
++  if (context.crossFile == null) return null
++  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0]
++  if (declaration == null || !ts.isFunctionDeclaration(declaration) || declaration.name == null) return null
++  if (declaration.getSourceFile() === context.sourceFile) return null
++  const resolved = context.crossFile.resolve(declaration)
++  if (resolved.kind !== 'contract') return null
++  if (current.arguments.length > declaration.parameters.length) {
++    throw unsupported(current, {kind: 'callWithMoreArguments', callee: declaration.name.text})
++  }
++  const arguments_ = lowerCallArguments(current, declaration.parameters, context)
++  return addInstruction(context, current, {
++    kind: 'crossCall',
++    arguments: arguments_,
++    returnKind: crossFileReturnKind(declaration, context.checker),
++    contract: resolved.contract,
++  })
++}
++
++// The engine needs some AbstractValue for a crossCall's result so the caller's own
++// arithmetic on it can still lower; coveringKindValue (see engine/transfer.ts's crossCall
++// case) turns this into the honest worst case for the kind, with no assumes claim. Anything
++// other than a number-returning signature falls back to opaque — safe because opaque values
++// carry no numeric claim at all, and the checker already vets every position the result
++// reaches against the declared TypeScript return type regardless of what this says.
++function crossFileReturnKind(declaration: ts.FunctionDeclaration, checker: ts.TypeChecker): DeclaredKind {
++  const signature = checker.getSignatureFromDeclaration(declaration)
++  const returnType = signature == null ? null : checker.getReturnTypeOfSignature(signature)
++  return returnType != null && valueKind(returnType, checker) === 'number'
++    ? {kind: 'number', interval: null}
++    : {kind: 'opaque'}
++}
++
+ // The single value kind a type describes, or null when the type mixes kinds (a union like
+ // number | boolean), mixes object shapes without a supported tag (a union like {x} |
+ // {x, y}), or falls outside the accepted kinds entirely (e.g. bigint or symbol).
+diff --git a/src/lower/module.ts b/src/lower/module.ts
+index f3dee7f..6239d29 100644
+--- a/src/lower/module.ts
++++ b/src/lower/module.ts
+@@ -17,6 +17,7 @@ import {assertAccepted} from './accept.ts'
+ import {numericLiteralValue} from './literals.ts'
+ import {declaredOnlyInDeclarationFiles} from './platform.ts'
+ import {addInstruction, addSite, createFunctionContext, LoweringStop, restoreLowering, sealBlocks, snapshotLowering, terminate, type FunctionContext, type TopLevelFunction} from './context.ts'
++import type {CrossFileResolver} from './cross-file.ts'
+ import {lowerExpression, nonMissingUnionMembers, tagLiteralValues, taggedUnionProperty, valueKind} from './expression.ts'
+ import {lowerStatement} from './statements.ts'
+ 
+@@ -192,8 +193,9 @@ export function lowerModuleInitializer(
+   functionsBySymbol: Map<ts.Symbol, TopLevelFunction>,
+   scan: ModuleScan,
+   sites: SourceSpan[],
++  crossFile: CrossFileResolver | undefined,
+ ): {initializer: FunctionIR; skips: InitializerSkip[]} {
+-  const context = createFunctionContext(sourceFile, checker, functionsBySymbol, scan.bindingsBySymbol, sites)
++  const context = createFunctionContext(sourceFile, checker, functionsBySymbol, scan.bindingsBySymbol, sites, [], crossFile ?? null)
+   const skips: InitializerSkip[] = []
+   const statements = sourceFile.statements
+   // Each statement gets its own catch: an unsupported one is skipped — its half-lowered
+diff --git a/src/lower/program.ts b/src/lower/program.ts
+index 1481640..17c1cfa 100644
+--- a/src/lower/program.ts
++++ b/src/lower/program.ts
+@@ -4,13 +4,18 @@ import {moduleInitializerName, nodeSpan, type DeclaredKind, type FunctionIR, typ
+ import type {CheckedSource} from '../typescript/check.ts'
+ import {assertAccepted, evalMention, typeCheckSuppressionMention} from './accept.ts'
+ import {addInstructionAtSite, addSite, createFunctionContext, LoweringStop, requiredSymbol, sealBlocks, terminate, unsupported, type MutableBlock, type TopLevelFunction} from './context.ts'
++import type {CrossFileResolver} from './cross-file.ts'
+ import {valueKind} from './expression.ts'
+ import {parameterDefaultFits, parameterDefaultLiteral, type ParameterDefaultLiteral} from './literals.ts'
+ import {declaredKind, lowerModuleInitializer, scanModuleBindings, tupleHasOptionalOrRestPositions, type ModuleScan} from './module.ts'
+ import {scanStaticAnnotations, type StaticAnnotation} from './static-intrinsics.ts'
+ import {lowerStatements} from './statements.ts'
+ 
+-export function lowerSource(checked: CheckedSource, baseDirectory: string = process.cwd()): ProgramIR {
++export function lowerSource(
++  checked: CheckedSource,
++  baseDirectory: string = process.cwd(),
++  crossFile?: CrossFileResolver,
++): ProgramIR {
+   const {sourceFile, checker} = checked
+   const declarations: ts.FunctionDeclaration[] = []
+   for (const statement of sourceFile.statements) {
+@@ -81,7 +86,7 @@ export function lowerSource(checked: CheckedSource, baseDirectory: string = proc
+     // A failed function lowering discards the half-built FunctionContext wholesale; only
+     // the name, annotation presence, offending node's site, and tagged reason survive.
+     try {
+-      functions.push(lowerFunction(declaration, staticAnnotations, sourceFile, checker, functionsBySymbol, scan, sites))
++      functions.push(lowerFunction(declaration, staticAnnotations, sourceFile, checker, functionsBySymbol, scan, sites, crossFile))
+     } catch (error) {
+       if (!(error instanceof LoweringStop)) throw error
+       sites.push(nodeSpan(sourceFile, error.node))
+@@ -94,7 +99,7 @@ export function lowerSource(checked: CheckedSource, baseDirectory: string = proc
+       })
+     }
+   }
+-  const {initializer, skips} = lowerModuleInitializer(sourceFile, checker, functionsBySymbol, scan, sites)
++  const {initializer, skips} = lowerModuleInitializer(sourceFile, checker, functionsBySymbol, scan, sites, crossFile)
+   return {
+     file: sourceFile.fileName,
+     baseDirectory,
+@@ -116,6 +121,7 @@ function lowerFunction(
+   functionsBySymbol: Map<ts.Symbol, TopLevelFunction>,
+   scan: ModuleScan,
+   sites: SourceSpan[],
++  crossFile: CrossFileResolver | undefined,
+ ): FunctionIR {
+   for (const annotation of staticAnnotations) {
+     if (annotation.kind === 'invalid') {
+@@ -154,6 +160,7 @@ function lowerFunction(
+     scan.bindingsBySymbol,
+     sites,
+     staticAnnotations,
++    crossFile ?? null,
+   )
+   const entry = context.currentBlock
+   for (const parameter of declaration.parameters) {
+diff --git a/src/project.ts b/src/project.ts
+index f2cfc89..33a3003 100644
+--- a/src/project.ts
++++ b/src/project.ts
+@@ -12,8 +12,10 @@ import {analyzeCheckedSource, type DetailedAnalysis} from './analyze.ts'
+ import {createFileAudit, formatFileAuditUnit} from './audit.ts'
+ import type {AssertionVerdict, FunctionAnalysis, RequirementFailure} from './engine/outcome.ts'
+ import type {SiteID} from './ir/ids.ts'
+-import {reportPath, siteLocation} from './ir/program.ts'
++import {reportPath, siteLocation, type FunctionIR, type ProgramIR} from './ir/program.ts'
++import {createCrossFileResolver, type CrossFileFileSource, type CrossFileResolver} from './lower/cross-file.ts'
+ import {formatUnsupportedReason} from './report/index.ts'
++import {createExpressionContext, crossFileRequirementStatus, numericExpression} from './requirements/infer.ts'
+ import {checkFile} from './typescript/check.ts'
+ import {formatDiagnosticLocation, formatDiagnosticPrefix, formatTypeScriptDiagnostics, TypeScriptDiagnosticsError, usePrettyOutput} from './typescript/diagnostics.ts'
+ import {
+@@ -39,7 +41,11 @@ type ErrorLintFinding = {
+   column: number
+   rule: 'console-assert' | 'declared-requirement' | 'inferred-requirement'
+   message: string
+-  related?: {label: string; line: number; column: number}
++  // file is present only when the related location is not this finding's own file — a
++  // --cross-file declared-requirement finding, whose "declared at" location sits in the
++  // callee's own file. Every same-file finding omits it, so formatLintFinding's fallback to
++  // finding.file is exactly today's behavior.
++  related?: {label: string; file?: string; line: number; column: number}
+ }
+ 
+ type LintFinding =
+@@ -60,9 +66,12 @@ type ProjectScan = {
+ }
+ 
+ // `fr`: every file's lint findings plus project coverage. TypeScript errors throw before
+-// analysis; the returned failure covers Freerange's error-level findings.
+-export function runProjectFindings(searchFrom: string): boolean {
+-  const scan = analyzeProject(searchFrom)
++// analysis; the returned failure covers Freerange's error-level findings. crossFile is
++// false by default (--cross-file's absence), which keeps every existing caller's output
++// byte-identical: analyzeProject then builds no resolver, no file ever lowers a crossCall
++// instruction, and collectCrossFileFindings's walk finds none to check.
++export function runProjectFindings(searchFrom: string, crossFile = false): boolean {
++  const scan = analyzeProject(searchFrom, crossFile)
+   const findings = scan.files.flatMap(collectLintFindings)
+     .sort((left, right) =>
+       left.file.localeCompare(right.file) || left.line - right.line || left.column - right.column)
+@@ -72,8 +81,8 @@ export function runProjectFindings(searchFrom: string): boolean {
+ 
+ // `fr <file>`: the project findings narrowed to one file — the same finding lines a
+ // project run prints for the file, with the file's own coverage counts.
+-export function runFileFindings(file: string): boolean {
+-  const target = analyzeTargetFile(file)
++export function runFileFindings(file: string, crossFile = false): boolean {
++  const target = analyzeTargetFile(file, crossFile)
+   const findings = collectLintFindings(target.detailed)
+     .sort((left, right) => left.line - right.line || left.column - right.column)
+   console.log(formatFindings(findings, fileCoverage(target.detailed), target.pretty))
+@@ -85,8 +94,8 @@ export function runFileFindings(file: string): boolean {
+ // coverage once at the end. The units all come from the one shared project analysis;
+ // nothing here creates a per-file TypeScript program. Audit output is informational and
+ // returns success; TypeScript errors throw before audit output.
+-export function runProjectAudit(searchFrom: string): boolean {
+-  const scan = analyzeProject(searchFrom)
++export function runProjectAudit(searchFrom: string, crossFile = false): boolean {
++  const scan = analyzeProject(searchFrom, crossFile)
+   const audits = scan.files.map(createFileAudit)
+     .sort((left, right) => left.file.localeCompare(right.file))
+   console.log([
+@@ -98,13 +107,13 @@ export function runProjectAudit(searchFrom: string): boolean {
+ 
+ // `fr --audit <file>`: exactly one file's unit under the same preamble — a literal slice
+ // of the project audit.
+-export function runFileAudit(file: string): boolean {
+-  const target = analyzeTargetFile(file)
++export function runFileAudit(file: string, crossFile = false): boolean {
++  const target = analyzeTargetFile(file, crossFile)
+   console.log(formatFileAuditUnit(createFileAudit(target.detailed), target.pretty))
+   return false
+ }
+ 
+-function analyzeProject(searchFrom: string): ProjectScan {
++function analyzeProject(searchFrom: string, crossFile: boolean): ProjectScan {
+   const configPath = findTypeScriptConfig(searchFrom)
+   if (configPath == null) {
+     throw new Error(`No tsconfig.json found from ${resolve(searchFrom)} or any parent directory.`)
+@@ -114,6 +123,11 @@ function analyzeProject(searchFrom: string): ProjectScan {
+   const sources = projectSources(projects)
+   const diagnostics = uniqueDiagnostics(projects.flatMap(project => ts.getPreEmitDiagnostics(project.program)))
+   requireNoTypeScriptErrors(diagnostics, rootProject.parsed.options)
++  // One resolver for the whole run, over every project source file: a file imported by
++  // several callers is analyzed once (src/lower/cross-file.ts memoizes by file), and an
++  // import cycle across any two project files is caught by the same resolver instance
++  // regardless of which file's scan reaches it first.
++  const resolver = crossFile ? createCrossFileResolver(crossFileSources(sources)) : undefined
+ 
+   const files: DetailedAnalysis[] = []
+   let analyzed = 0
+@@ -121,7 +135,7 @@ function analyzeProject(searchFrom: string): ProjectScan {
+   let unsupported = 0
+ 
+   for (const source of sources) {
+-    const detailed = analyzeProjectSource(source, process.cwd())
++    const detailed = analyzeProjectSource(source, process.cwd(), resolver)
+     files.push(detailed)
+     const perFile = fileCoverage(detailed)
+     analyzed += perFile.analyzed
+@@ -141,6 +155,17 @@ function analyzeProject(searchFrom: string): ProjectScan {
+   }
+ }
+ 
++function crossFileSources(sources: ProjectSource[]): Map<string, CrossFileFileSource> {
++  const bySource = new Map<string, CrossFileFileSource>()
++  for (const source of sources) {
++    bySource.set(resolve(source.sourceFile.fileName), {
++      sourceFile: source.sourceFile,
++      checker: source.project.program.getTypeChecker(),
++    })
++  }
++  return bySource
++}
++
+ function collectLintFindings({program, analysis}: DetailedAnalysis): LintFinding[] {
+   const file = reportPath(program)
+   const findings: LintFinding[] = []
+@@ -297,6 +322,7 @@ function collectLintFindings({program, analysis}: DetailedAnalysis): LintFinding
+   // because no function can call it. Its failures are still project lint findings.
+   collectStops(analysis.initializer)
+   collectAssertions(analysis.initializer)
++  findings.push(...collectCrossFileFindings(program, analysis.initializer.lowering))
+   for (const issue of program.staticAnnotationIssues) {
+     addError(
+       issue.site,
+@@ -318,6 +344,47 @@ function collectLintFindings({program, analysis}: DetailedAnalysis): LintFinding
+             : `console.assert in ${fn.lowering.name} was not checked because ${reason}`,
+         )
+       }
++    } else {
++      findings.push(...collectCrossFileFindings(program, fn.lowering))
++    }
++  }
++  return findings
++}
++
++// Every crossCall instruction in one function's IR, checked against the contract resolved
++// for it at lowering time (src/lower/cross-file.ts). Unlike collectStops/collectAssertions
++// above, this is not reading anything the engine's abstract interpretation produced — the
++// check is purely structural (crossFileRequirementStatus, src/requirements/infer.ts) and
++// runs the same whether fn ended up 'analyzed' or 'partial', because lowering itself (not
++// analysis) is what determined which calls became crossCall instructions in the first
++// place. A file lowered without --cross-file has no crossCall instructions at all, so this
++// walk is a no-op then — which is what keeps default output byte-identical.
++function collectCrossFileFindings(program: ProgramIR, fn: FunctionIR): ErrorLintFinding[] {
++  const file = reportPath(program)
++  const findings: ErrorLintFinding[] = []
++  const expressionContext = createExpressionContext(fn, fn.parameters.map((_, index) => ({kind: 'parameter' as const, index})))
++  for (const block of fn.blocks) {
++    for (const instruction of block.instructions) {
++      if (instruction.kind !== 'crossCall') continue
++      const argumentExpressions = instruction.arguments.map(id => numericExpression(id, expressionContext))
++      for (const requirement of instruction.contract.requirements) {
++        if (crossFileRequirementStatus(requirement.precondition, argumentExpressions) !== false) continue
++        const location = siteLocation(program, instruction.site)
++        findings.push({
++          kind: 'error',
++          file,
++          line: location.line,
++          column: location.column,
++          rule: 'declared-requirement',
++          message: `call to ${instruction.contract.calleeName} makes its declared requirement definitely false`,
++          related: {
++            label: 'declared at',
++            file: requirement.declarationFile,
++            line: requirement.declarationLine,
++            column: requirement.declarationColumn,
++          },
++        })
++      }
+     }
+   }
+   return findings
+@@ -388,7 +455,7 @@ function formatLintFinding(finding: LintFinding, pretty: boolean): string {
+       const related = finding.related == null
+         ? ''
+         : ` (${finding.related.label} ${formatDiagnosticLocation({
+-          file: finding.file,
++          file: finding.related.file ?? finding.file,
+           line: finding.related.line,
+           column: finding.related.column,
+         }, pretty)})`
+@@ -420,7 +487,7 @@ type TargetFile = {detailed: DetailedAnalysis; pretty: boolean}
+ // not the configuration, so a nested tsconfig near the file cannot make `fr sub/file.ts`
+ // disagree with what `fr` reports for that same file. When a project exists, the file
+ // must belong to it; otherwise there is no project result for file mode to be a subset of.
+-function analyzeTargetFile(file: string): TargetFile {
++function analyzeTargetFile(file: string, crossFile: boolean): TargetFile {
+   const absoluteFile = resolve(file)
+   if (!existsSync(absoluteFile)) throw new Error(`File not found: ${absoluteFile}`)
+   const configPath = findTypeScriptConfig(process.cwd())
+@@ -428,16 +495,20 @@ function analyzeTargetFile(file: string): TargetFile {
+ 
+   const projects = loadTypeScriptProjectGraph(configPath)
+   const rootProject = projects.at(-1)!
++  const sources = projectSources(projects)
+   const targetPath = canonicalFilePath(absoluteFile)
+-  const source = projectSources(projects).find(candidate =>
+-    canonicalFilePath(candidate.sourceFile.fileName) === targetPath)
++  const source = sources.find(candidate => canonicalFilePath(candidate.sourceFile.fileName) === targetPath)
+   if (source == null) {
+     throw new Error(`File is not part of the project resolved from ${configPath}: ${absoluteFile}`)
+   }
+   const diagnostics = ts.getPreEmitDiagnostics(source.project.program, source.sourceFile)
+   requireNoTypeScriptErrors(diagnostics, rootProject.parsed.options)
++  // A single target file may still import from anywhere in the project, so the resolver
++  // is built over every project source the same way analyzeProject builds it, not just
++  // the target file itself.
++  const resolver = crossFile ? createCrossFileResolver(crossFileSources(sources)) : undefined
+   return {
+-    detailed: analyzeProjectSource(source, process.cwd()),
++    detailed: analyzeProjectSource(source, process.cwd(), resolver),
+     pretty: usePrettyOutput(rootProject.parsed.options['pretty']),
+   }
+ }
+@@ -458,11 +529,12 @@ function analyzeFileAlone(absoluteFile: string): TargetFile {
+ function analyzeProjectSource(
+   source: ProjectSource,
+   reportBaseDirectory: string,
++  crossFile: CrossFileResolver | undefined,
+ ): DetailedAnalysis {
+   return analyzeCheckedSource({
+     sourceFile: source.sourceFile,
+     checker: source.project.program.getTypeChecker(),
+-  }, reportBaseDirectory)
++  }, reportBaseDirectory, crossFile)
+ }
+ 
+ function uniqueDiagnostics(diagnostics: readonly ts.Diagnostic[]): ts.Diagnostic[] {
+diff --git a/src/requirements/infer.ts b/src/requirements/infer.ts
+index 94d0994..edc9d20 100644
+--- a/src/requirements/infer.ts
++++ b/src/requirements/infer.ts
+@@ -124,7 +124,10 @@ export function numericExpression(value: ValueID, context: ExpressionContext): N
+       case 'tagCheck':
+       case 'nullishCheck':
+       case 'arrayLiteral':
+-      case 'arrayIndex': return null
++      case 'arrayIndex':
++      // A cross-file call's result is opaque here for the same reason an ordinary call's
++      // result is: nothing names it back to a parameter of the function being expressed.
++      case 'crossCall': return null
+       // An array's length is fixed at construction (no push in the subset), so a length
+       // read over a nameable array could join the expression language later; not yet.
+       case 'arrayLength': return null
+@@ -235,6 +238,57 @@ export function constantRequirementStatus(
+   }
+ }
+ 
++// Replaces a cross-file callee's own parameter placeholders with the caller's argument
++// expressions, so a requirement proven about the callee's parameters (e.g. actionCount >= 1)
++// becomes a claim about the caller's actual arguments. Returns null, the same way
++// numericExpression does, when an argument itself could not be expressed — a non-literal
++// argument leaves the requirement unresolved rather than wrongly resolved.
++export function substituteParameters(
++  expression: NumericExpression,
++  argumentExpressions: Array<NumericExpression | null>,
++): NumericExpression | null {
++  switch (expression.kind) {
++    case 'parameter': return argumentExpressions[expression.index] ?? null
++    case 'constant': return expression
++    case 'binary': {
++      const left = substituteParameters(expression.left, argumentExpressions)
++      const right = substituteParameters(expression.right, argumentExpressions)
++      return left == null || right == null
++        ? null
++        : {kind: 'binary', operator: expression.operator, left, right}
++    }
++    case 'floor': {
++      const operand = substituteParameters(expression.operand, argumentExpressions)
++      return operand == null ? null : {kind: 'floor', operand}
++    }
++    case 'property': {
++      const base = substituteParameters(expression.base, argumentExpressions)
++      return base == null ? null : {kind: 'property', base, name: expression.name}
++    }
++  }
++}
++
++// Whether a cross-file callee's own console.assert requirement holds at one caller call
++// site, checked purely structurally: substitute the caller's argument expressions for the
++// callee's parameters, then fold the same way constantRequirementStatus folds an ordinary
++// same-file requirement whose operands are already literals. This is deliberately weaker
++// than same-file call checking, which re-evaluates the callee's body against the caller's
++// abstract intervals — there is no shared ProgramIR to re-run the callee's IR in, so a
++// caller argument that is not itself a literal (or arithmetic over literals) resolves to
++// null, "cannot prove either way", exactly like an unfoldable same-file requirement.
++export function crossFileRequirementStatus(
++  requirement: Extract<InferredPrecondition, {kind: 'declaredComparison' | 'declaredNumberCheck'}>,
++  argumentExpressions: Array<NumericExpression | null>,
++): boolean | null {
++  if (requirement.kind === 'declaredNumberCheck') {
++    const expression = substituteParameters(requirement.expression, argumentExpressions)
++    return expression == null ? null : constantRequirementStatus({...requirement, expression})
++  }
++  const left = substituteParameters(requirement.left, argumentExpressions)
++  const right = substituteParameters(requirement.right, argumentExpressions)
++  return left == null || right == null ? null : constantRequirementStatus({...requirement, left, right})
++}
++
+ function constantNumericExpression(expression: NumericExpression): number | null {
+   switch (expression.kind) {
+     case 'constant': return expression.value
+diff --git a/tests/cross-file.test.ts b/tests/cross-file.test.ts
+new file mode 100644
+index 0000000..9a126cb
+--- /dev/null
++++ b/tests/cross-file.test.ts
+@@ -0,0 +1,168 @@
++// --cross-file's own test coverage, kept separate from tests/project-report.test.ts's
++// suite (which does not exercise multiple files importing from each other). See
++// WITNESS-FORK.md for the motivating case: a leading console.assert requirement on a
++// named top-level function must still gate its caller when the caller imports the
++// function from another file, not just when both live in one file.
++import {expect, test} from 'bun:test'
++import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
++import {tmpdir} from 'node:os'
++import {dirname, join} from 'node:path'
++
++const freerangeCli = new URL('../fr.ts', import.meta.url).pathname
++
++function runCli(cwd: string, ...arguments_: string[]) {
++  const result = Bun.spawnSync({
++    cmd: [process.execPath, freerangeCli, ...arguments_],
++    cwd,
++    stdout: 'pipe',
++    stderr: 'pipe',
++    timeout: 10_000,
++  })
++  return {
++    exitCode: result.exitCode,
++    signalCode: result.signalCode,
++    stdout: result.stdout.toString(),
++    stderr: result.stderr.toString(),
++  }
++}
++
++function writeProject(directory: string, files: Record<string, string>): void {
++  writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({
++    compilerOptions: {
++      strict: true,
++      target: 'ESNext',
++      module: 'ESNext',
++      moduleResolution: 'bundler',
++    },
++    include: ['**/*.ts'],
++  }))
++  for (const [file, source] of Object.entries(files)) {
++    const path = join(directory, file)
++    mkdirSync(dirname(path), {recursive: true})
++    writeFileSync(path, source)
++  }
++}
++
++// The motivating case from WITNESS-FORK.md: a card layout helper whose divisor must be at
++// least 1, called with a literal 0 from a different file.
++const cardLayoutLibrary = `export function cardActionSlotWidth(available: number, actionCount: number): number {
++  console.assert(Number.isInteger(actionCount))
++  console.assert(actionCount >= 1)
++  return (available - 8 * (actionCount - 1)) / actionCount
++}
++`
++
++test('a cross-file requirement violation is invisible without --cross-file and caught with it', () => {
++  const projectDirectory = mkdtempSync(join(tmpdir(), 'freerange-cross-file-bad-'))
++  try {
++    writeProject(projectDirectory, {
++      'lib.ts': cardLayoutLibrary,
++      'consumer.ts': `import {cardActionSlotWidth} from './lib'
++
++export function useIt(): number {
++  return cardActionSlotWidth(268, 0)
++}
++`,
++    })
++
++    // Default behavior (the flag absent): unchanged from the unpatched analyzer — the
++    // import makes the call, and therefore the whole containing function, unsupported.
++    // Unsupported is not itself a finding, so the run stays clean and exits 0.
++    const withoutFlag = runCli(projectDirectory)
++    expect(withoutFlag.exitCode).toBe(0)
++    expect(withoutFlag.stdout).toContain('No lint findings.')
++    expect(withoutFlag.stdout)
++      .toContain('coverage: 1/2 named top-level function declarations fully analyzed; 0 partially supported; 1 unsupported.')
++
++    // --cross-file resolves the import, applies cardActionSlotWidth's own proven
++    // requirements at the call site, and finds actionCount >= 1 definitely false for the
++    // literal argument 0.
++    const withFlag = runCli(projectDirectory, '--cross-file')
++    expect(withFlag.exitCode).toBe(1)
++    expect(withFlag.stderr).toBe('')
++    expect(withFlag.stdout).toContain(
++      'error [declared-requirement]: call to cardActionSlotWidth makes its declared requirement definitely false',
++    )
++    // The finding sits at the call, in consumer.ts...
++    expect(withFlag.stdout).toMatch(/consumer\.ts\(4,\d+\): error \[declared-requirement\]/)
++    // ...and the "declared at" location it cites is the requirement's real site, in lib.ts
++    // — proving the location was resolved against the callee's own file, not misreported
++    // against the caller's.
++    expect(withFlag.stdout).toContain('declared at lib.ts(')
++    expect(withFlag.stdout).not.toContain('declared at consumer.ts(')
++    expect(withFlag.stdout).toContain('1 finding (1 error, 0 warnings).')
++
++    // `fr <file> --cross-file` narrows to consumer.ts and still resolves the import: the
++    // resolver is built from the whole project's sources regardless of which file the
++    // output is narrowed to.
++    const targeted = runCli(projectDirectory, 'consumer.ts', '--cross-file')
++    expect(targeted.exitCode).toBe(1)
++    expect(targeted.stdout).toContain('call to cardActionSlotWidth makes its declared requirement definitely false')
++  } finally {
++    rmSync(projectDirectory, {recursive: true, force: true})
++  }
++})
++
++test('a satisfying cross-file call is clean, and the caller is genuinely analyzed rather than left unsupported', () => {
++  const projectDirectory = mkdtempSync(join(tmpdir(), 'freerange-cross-file-good-'))
++  try {
++    writeProject(projectDirectory, {
++      'lib.ts': cardLayoutLibrary,
++      'consumer.ts': `import {cardActionSlotWidth} from './lib'
++
++export function useIt(): number {
++  return cardActionSlotWidth(268, 4)
++}
++`,
++    })
++
++    const result = runCli(projectDirectory, '--cross-file')
++    expect(result.exitCode).toBe(0)
++    expect(result.stderr).toBe('')
++    expect(result.stdout).toContain('No lint findings.')
++    // Both functions are now fully analyzed — not just silently "unsupported" the way an
++    // import call always resolved before this flag existed. If cross-file resolution were
++    // only suppressing the old unsupported call instead of actually lowering and checking
++    // it, this coverage line would still read 1/2 with 1 unsupported, exactly like the
++    // flag-off baseline in the sibling test.
++    expect(result.stdout)
++      .toContain('coverage: 2/2 named top-level function declarations fully analyzed; 0 partially supported; 0 unsupported.')
++  } finally {
++    rmSync(projectDirectory, {recursive: true, force: true})
++  }
++})
++
++test('a mutual import cycle terminates under --cross-file instead of recursing forever', () => {
++  const projectDirectory = mkdtempSync(join(tmpdir(), 'freerange-cross-file-cycle-'))
++  try {
++    // a calls b, b calls a: resolving either crossCall's contract requires analyzing the
++    // other file, which itself needs the first file's contract. The resolver's per-file
++    // "currently analyzing" guard (src/lower/cross-file.ts) must report 'cycle' instead of
++    // resolving forever the second time either file comes up mid-chain.
++    writeProject(projectDirectory, {
++      'a.ts': `import {b} from './b'
++
++export function a(n: number): number {
++  console.assert(n >= 0)
++  return b(n)
++}
++`,
++      'b.ts': `import {a} from './a'
++
++export function b(n: number): number {
++  console.assert(n >= 0)
++  return a(n)
++}
++`,
++    })
++
++    const result = runCli(projectDirectory, '--cross-file')
++    // The process must exit on its own, not be killed by the 10-second timeout above —
++    // Bun.spawnSync reports a timeout kill through signalCode ('SIGTERM' here), so a
++    // natural exit is anything else (including bun's own "no signal" value).
++    expect(result.signalCode).not.toBe('SIGTERM')
++    expect(typeof result.exitCode).toBe('number')
++  } finally {
++    rmSync(projectDirectory, {recursive: true, force: true})
++  }
++})
+-- 
+2.49.0
+
