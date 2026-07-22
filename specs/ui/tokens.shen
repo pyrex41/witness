@@ -12,13 +12,20 @@
 (datatype design-tokens
   ___ default-tokens : design-tokens;)
 
-(declare token-value [design-tokens --> [string --> number]])
-
+\\ Shen has no `case` form. This was written as
+\\   (define token-value Tokens Key -> (case Key "space-4" -> 16 ...))
+\\ which collapsed to the fallback for EVERY key: token-value "space-4" raised
+\\ "Unknown token space-4". So no design token has ever resolved, and every
+\\ obligation expressed in terms of tokens was erroring rather than computing.
+\\ Nothing caught it because the emitter reads token_values out of
+\\ (card-contract-shape) as data and never calls this function.
+\\
+\\ Shen's actual mechanism is multiple pattern-matching rules on the arguments.
 (define token-value
-  Tokens Key -> (case Key
-                  "space-4" -> 16
-                  "space-2" -> 8
-                  "text-title" -> 18
-                  "text-action" -> 14
-                  "radius-lg" -> 8
-                  _ -> (simple-error (cn "Unknown token " Key))))
+  { design-tokens --> string --> number }
+  _ "space-4"    -> 16
+  _ "space-2"    -> 8
+  _ "text-title" -> 18
+  _ "text-action" -> 14
+  _ "radius-lg"  -> 8
+  _ Key -> (simple-error (cn "Unknown token " Key)))

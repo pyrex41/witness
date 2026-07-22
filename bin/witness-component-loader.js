@@ -8,7 +8,7 @@
  *   for protected component high-level contracts + design-fidelity theorems).
  * - Can print the exact (load "...") forms for inclusion.
  * - --update : safely rewrites the managed section inside
- *   specs/design/witness-core.shen so that Gate 1/2 automatically cover
+ *   specs/design/the prelude so that Gate 1/2 automatically cover
  *   every component's properties with ZERO manual wiring or edits to
  *   witness-core.shen when a new *-properties.shen is added.
  *
@@ -29,7 +29,16 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const PROPERTIES_DIR = path.join(ROOT, 'specs', 'ui', 'properties');
-const WITNESS_CORE = path.join(ROOT, 'specs', 'design', 'witness-core.shen');
+// Target the PRELUDE, not specs/design/witness-core.shen.
+//
+// Component contracts must be loaded with type checking OFF: their constructor
+// functions have no inline signatures, and under tc+ every define requires one.
+// witness-core.shen is type-checked BY Gate 1 (it is in specs/design/), so
+// loading contracts from there would pull them into tc+ and fail. The prelude
+// loads them under tc-, exactly as it already does for shen/proofs.shen, and
+// Gate 1 then checks specs that USE those contracts — which is where the
+// obligations actually get evaluated.
+const WITNESS_CORE = path.join(ROOT, 'shen', 'witness-sbcl.shen');
 
 const START_MARKER = '--- UI component properties (auto-discovered + maintained by tiny generic loader) ---';
 const END_MARKER = '--- End UI component properties loads ---';
@@ -68,7 +77,7 @@ function getCurrentLoadsBlock() {
 function updateWitnessCore(dryRun = false) {
   const block = getCurrentLoadsBlock();
   if (!block) {
-    console.error('ERROR: Could not find managed loads section in specs/design/witness-core.shen');
+    console.error('ERROR: Could not find managed loads section in shen/witness-sbcl.shen');
     console.error('       Look for the START/END markers. First run the scaffolder or insert the block manually.');
     process.exit(1);
   }
@@ -87,8 +96,8 @@ function updateWitnessCore(dryRun = false) {
     `${comment}   - Run manually: node bin/witness-component-loader.js --update`,
     `${comment}   - scaffolder (\`witness spec-init Foo\`) does this automatically after writing the skeleton.`,
     `${comment}`,
-    `${comment} Gate 1 (via witness-core.shen) + Gate 2 therefore cover every component's`,
-    `${comment} datatypes + design-fidelity theorems with zero per-component wiring in this file.`
+    `${comment} Loaded under tc- so the contracts are available to every spec that Gate 1`,
+    `${comment} then type-checks under tc+, with zero per-component wiring by hand.`
   ];
   const replacement =
     headerLines.join('\n') + '\n' +

@@ -27,23 +27,33 @@
 \\ card-desc-slot carries an explicit overflow Strategy (Tier 3)
 \\ card-action-slot is like title but for buttons/labels
 
+\\ The premise is an `if` SIDE CONDITION — Shen evaluates it during type
+\\ checking, so (fits? ...) really measures the text. Written as
+\\ `(fits? ...) : verified;` (as it was) nothing could discharge it, and the
+\\ rule fired for no input at all. See shen/proofs.shen for the same fix.
+\\
+\\ The conclusion is the tagged DATA form rather than an (mk-card-title ...)
+\\ application, matching the [proven-cell ...] pattern in proofs.shen: a
+\\ constructor function would need a signature promising card-title-slot
+\\ unconditionally, which would hand out the type without the fits? premise
+\\ and defeat the point of having one.
 (datatype card-title-slot
+  if (fits? Text Font MaxW)
   Text : string; Font : string; MaxW : number; Tokens : design-tokens;
-  (fits? Text Font MaxW) : verified;
   ________________________________________________
-  (mk-card-title Text Font MaxW Tokens) : card-title-slot;)
+  [card-title Text Font MaxW Tokens] : card-title-slot;)
 
 (datatype card-desc-slot
   Text : string; Font : string; MaxW : number; Tokens : design-tokens;
   Strategy : overflow;
   ________________________________________________
-  (mk-card-desc Text Font MaxW Strategy Tokens) : card-desc-slot;)
+  [card-desc Text Font MaxW Strategy Tokens] : card-desc-slot;)
 
 (datatype card-action-slot
+  if (fits? Label Font MaxW)
   Label : string; Font : string; MaxW : number; Tokens : design-tokens;
-  (fits? Label Font MaxW) : verified;
   ________________________________________________
-  (mk-card-action Label Font MaxW Tokens) : card-action-slot;)
+  [card-action Label Font MaxW Tokens] : card-action-slot;)
 
 \\ --- Variant declarations (each carries independent obligations, like responsive branches) ---
 \\ mobile  = 320px viewport, 268px content width (the tightest constraint)
@@ -123,16 +133,16 @@
 \\ --- The verified Card (the product type the emitter will brand) ---
 
 (datatype verified-card
+  if (and (layout-obligations-satisfied Title Desc Actions Variant Tokens)
+          (and (figma-card-matches "examples/card-design.json" Variant 2)
+               (responsive-variants-proven Variant Tokens)))
   Title : card-title-slot;
   Desc  : card-desc-slot;
   Actions : (list card-action-slot);
   Variant : card-variant;
   Tokens : design-tokens;
-  (layout-obligations-satisfied Title Desc Actions Variant Tokens) : verified;
-  (figma-card-matches "examples/card-design.json" Variant 2) : verified;
-  (responsive-variants-proven Variant Tokens) : verified;
   ________________________________________________
-  (card Title Desc Actions Variant Tokens) : verified-card;)
+  [card Title Desc Actions Variant Tokens] : verified-card;)
 
 \\ --- Runtime constructors (values are opaque for now; type rules above do the work) ---
 

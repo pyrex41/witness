@@ -112,7 +112,7 @@ shen/witness.shen 04517fdc2326c73cdb339e2d59cd4ae3bf99ae9cccafa8743e0eeea6954000
 shen/trust.shen b736703f85cac4fd6d8bcb3fb53c94174926a3986c762304db40aadad469b870
 shen/layout.shen 6122b6db8e0a137bc75ce137454a5dd04b4697e534bb64798958f1d0aba5fc23
 shen/proofs.shen f7093624eb9438797d1def2fd4b39e74c4723e47285d9a31e1ef2ea70b42dea1
-shen/witness-sbcl.shen 78474b4d73c2a53e97195ad6b255cdc6bfa6095dcf897a818d068b81f6c2cfd2
+shen/witness-sbcl.shen f457ca39b7c1aba500394e35763382f84f4d30492ecb24e962b76a18d107f39b
 shen/ssr.shen 7249622e990120992b30d55b97fd51b367ef52cd8c254987a0cf91fd1c42ad4f
 shen/dom.shen 3d8c6cfe989f942e4851b33596296f0d0abf49e7052a71c532d2d5080a17387b
 bin/witness-check.sh 46a9c68c1f33396255e3f37ca58977d3b08a9039326fc1377b0f958db933eed8
@@ -121,6 +121,8 @@ cli/shen-check.js a7ae36ec28e5caac731f8315b097fccf48f23c802eeedbae778723f1ce1559
 cli/freerange-audit.js 810a11d34c08148265364ca42f06f1760d3a0d061334892272b079818ade3a3b
 MANIFEST_EOF
 )
+# === END OF UPDATED BLOCK ===
+# After replacing, run the gates (full) to self-verify.
 # === END OF UPDATED BLOCK ===
 # After replacing, run the gates (full) to self-verify.
 # === END OF UPDATED BLOCK ===
