@@ -92,20 +92,33 @@
 
 (datatype layout-proofs
 
-  \\ A text measurement proof: text fits in MaxW pixels
-  \\ Requires (fits? Text Font MaxW) : verified in the type context.
-  \\ The `where` clause in user define rules provides this under tc+.
-  \\ Under tc- (the common Astro path), trust.shen's read-time macro
-  \\ gates construction instead — a non-literal first argument to
-  \\ (proven-text ...) is rejected before this rule ever applies.
+  \\ A text measurement proof: text fits in MaxW pixels.
+  \\
+  \\ The premise is an `if` SIDE CONDITION, and that distinction is the
+  \\ whole mechanism. Shen EVALUATES an `if` clause during type checking,
+  \\ so (measure Text Font) really runs — Pretext measures the glyphs and
+  \\ the comparison decides whether the rule fires. That is what makes
+  \\ overflow a type error rather than a slogan.
+  \\
+  \\ This rule previously read `(fits? Text Font MaxW) : verified;`, a type
+  \\ ASSERTION rather than a side condition. Nothing in the system could
+  \\ ever discharge it, so the rule fired for NOTHING: a 31.9px string in a
+  \\ 100px box was rejected exactly like the same string in a 10px box.
+  \\ Note also that a bare premise without `:` is sugar for `: verified`
+  \\ and is equally inert — the `if` keyword, placed BEFORE the premises,
+  \\ is what makes the expression evaluate.
+  \\
+  \\ Verified by boundary test: "Save" in 14px sans-serif measures 31.91px;
+  \\ MaxW 32 is accepted, MaxW 31 is rejected.
+  if (<= (measure Text Font) MaxW)
   Text : string; Font : string; MaxW : number;
-  (fits? Text Font MaxW) : verified;
   ______________________________________________
   [proven-cell Text Font MaxW] : safe-text;
 
-  \\ Bounded string: string is known to be at most N chars
+  \\ Bounded string: string is known to be at most N chars.
+  \\ Same correction — evaluated, so it now actually decides.
+  if (>= N (string-length S))
   S : string; N : number;
-  (>= N (string-length S)) : verified;
   ______________________________________________
   S : (bounded N);
 
@@ -159,26 +172,21 @@
 
 (datatype numeric-range-proofs
 
-  \\ A number W, statically known to satisfy Lo <= W <= Hi for every value
-  \\ a caller can produce, carries the (bounded Lo Hi) type. This is the
-  \\ range-oracle analogue of the string (bounded N) rule above: same
-  \\ "compute a boolean, lift it to :verified" shape (see verified-lift in
-  \\ card-properties.shen for the established pattern this follows), but
-  \\ over a live pair of comparisons rather than a single string-length check.
+  \\ A number W known to satisfy Lo <= W <= Hi carries (bounded Lo Hi).
+  \\ Both comparisons are `if` side conditions, so the type checker
+  \\ EVALUATES them. Written as `: verified` assertions (as they were),
+  \\ they were undischargeable and the rule fired for nothing.
+  if (and (<= Lo W) (<= W Hi))
   W : number; Lo : number; Hi : number;
-  (<= Lo W) : verified;
-  (<= W Hi) : verified;
   ________________________________________________
   W : (bounded Lo Hi);
 
-  \\ Worst-case discharge: this is the "fits?-style obligation, discharged
-  \\ against a RANGE rather than a literal" the README described as
-  \\ deferred. If W is (bounded Lo Hi) and even the worst case (Hi) is
-  \\ still <= MaxW, then W <= MaxW for every value the caller can produce —
-  \\ not just the one value happened to be checked. Lo is threaded through
-  \\ so the conclusion names the whole witness (not just the binding Hi
-  \\ edge); it plays no role in this particular (upper-bound) discharge.
+  \\ Worst-case discharge: a fits?-style obligation against a RANGE rather
+  \\ than a single value. If W is (bounded Lo Hi) and even the worst case
+  \\ (Hi) is <= MaxW, then W <= MaxW for every value the caller can
+  \\ produce. Lo is threaded through so the conclusion names the whole
+  \\ witness; it plays no part in this upper-bound discharge.
+  if (<= Hi MaxW)
   W : (bounded Lo Hi); MaxW : number;
-  (<= Hi MaxW) : verified;
   ________________________________________________
-  (bound-fits? W Lo Hi MaxW) : verified;)
+  [bound-fits Hi MaxW] : verified;)

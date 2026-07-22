@@ -17,14 +17,15 @@
     "witness-spec-init": "./bin/witness-spec-init.js"
   },
   "scripts": {
-    "test": "node test/smoke.js && node test/cli.test.js && node test/layout.test.js && node test/proofs.test.js && node test/trust.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
+    "test": "node test/smoke.js && node test/cli.test.js && node test/layout.test.js && node test/proofs.test.js && node test/tc-enforcement.test.js && node test/trust.test.js && node test/responsive.test.js && node test/astro-runtime.test.js",
     "smoke": "node test/smoke.js",
     "test:cli": "node test/cli.test.js",
     "test:geometry": "node test/geometry.test.js",
     "design-gates": "bash bin/witness-design-gates.sh",
     "design-gates:full": "bash bin/witness-design-gates.sh --full",
     "gates": "bash bin/witness-design-gates.sh",
-    "loop": "bash bin/witness-loop.sh"
+    "loop": "bash bin/witness-loop.sh",
+    "test:tc": "node test/tc-enforcement.test.js"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
