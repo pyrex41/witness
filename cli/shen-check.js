@@ -20,8 +20,7 @@
 // WITHOUT shen/witness.shen, which matters: witness.shen enables (tc +) at load
 // time, and the measurement cache must be read under (tc -) before that happens.
 //
-// Load order below is identical to bin/witness-check.sh's phase 2, and is the
-// order the load-order contract in specs/design/load-order-trust.shen describes:
+// Load order below is identical to bin/witness-check.sh's phase 2:
 //   1. .witness/measurements.shen   (tc -)  — the Pretext measurement cache
 //   2. shen/witness-sbcl.shen       (tc -)  — proofs/errors/tailwind, then (tc +)
 //   3. each spec under test         (tc +)  — the actual proof obligation

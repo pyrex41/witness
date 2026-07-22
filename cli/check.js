@@ -139,7 +139,6 @@ Thin official entry point for the shen-witness codegen layer (Card spike is the 
 
 Options:
   --emit, --write     Write the emitted Card.tsx + card.css to codegen/emitters/generated/card/
-  --lowlevel          Force legacy low-level (render-view) extraction instead of high-level verified-card walk
   (default: preview the sources to stdout)
 
 See specs/ui/card-spec.shen, codegen/emitters/card-emitter.js, Gate 4 (emitter fidelity),
