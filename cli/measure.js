@@ -115,7 +115,14 @@ async function main() {
   // stale cache happened to be at the root — with no error, and no way to tell
   // from the output. For a file that is the oracle behind every fits?
   // obligation, "which copy did we just prove against?" must not depend on cwd.
-  const outDir = path.join(__dirname, '..', '.witness');
+  //
+  // The root it is written to follows the PROJECT, not the package: a consumer's
+  // cache must live in its own repo. Writing into node_modules/witness/.witness
+  // would put the measurements every downstream proof is discharged against
+  // somewhere the next `npm install` destroys. Unset, this is the witness
+  // package itself, exactly as before.
+  const projectRoot = process.env.WITNESS_PROJECT_ROOT || path.join(__dirname, '..');
+  const outDir = path.join(projectRoot, '.witness');
   fs.mkdirSync(outDir, { recursive: true });
 
   const lines = measurements.map(m =>

@@ -27,8 +27,28 @@
 
 set -euo pipefail
 
+# SCRIPT_DIR is the witness PACKAGE — where the proof machinery (cli/, boot.js,
+# vendor/shen-script) lives. It is derived from this script's own location, so it
+# is correct whether the script is run from a checkout or from node_modules.
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DESIGN_SPECS_DIR="$SCRIPT_DIR/specs/design"
+
+# PROJECT_ROOT is the codebase being GATED. It defaults to the witness package,
+# so running this inside the witness repo behaves exactly as it always has. A
+# consuming project points it at itself — via --project-root or
+# WITNESS_PROJECT_ROOT — and the gates then discover ITS specs, theorems and
+# emitters instead of witness's own. Before this split every directory below was
+# SCRIPT_DIR-derived, so a downstream `npx witness gates` silently re-gated the
+# installed dependency and reported green without ever seeing the caller's code.
+PROJECT_ROOT="${WITNESS_PROJECT_ROOT:-$SCRIPT_DIR}"
+
+# Individually overridable so a project with a different layout can adopt the
+# gates without renaming its directories. Each defaults to the conventional path
+# under PROJECT_ROOT.
+DESIGN_SPECS_DIR="${WITNESS_DESIGN_SPECS_DIR:-}"
+PROPERTIES_DIR="${WITNESS_PROPERTIES_DIR:-}"
+EMITTERS_DIR="${WITNESS_EMITTERS_DIR:-}"
+GENERATED_DIR="${WITNESS_GENERATED_DIR:-}"
+PROJECT_TSCONFIG="${WITNESS_TSCONFIG:-}"
 
 # Prefer shen-cl (faster kernel from https://github.com/pyrex41/shen-cl)
 # Fall back to official shen-sbcl if shen-cl is not installed or fails basic smoke test
@@ -113,7 +133,10 @@ run_gate_1() {
   echo "  Discovers specs/design/*.shen and runs them through bin/witness-check.sh"
   echo "  (Phase 1: Node/Pretext measure of all text/font; Phase 2: $SHEN_BIN (tc+))."
   echo "  The design specs CONSTRUCT contract values; tc+ evaluates each contract's"
-  echo "  `if` side condition, which runs the real Pretext ruler over the declared text."
+  # Single-quoted: backticks inside a double-quoted string are command
+  # substitution, so this line ran `if` as a command and emitted a bash syntax
+  # error into the middle of Gate 1's banner on every single run.
+  echo '  `if` side condition, which runs the real Pretext ruler over the declared text.'
   echo ""
   if [ ! -d "$DESIGN_SPECS_DIR" ]; then
     fail_gate 1 "$DESIGN_SPECS_DIR does not exist. Create specs/design/ and add witness-core.shen (or run future 'witness design-init')."
@@ -130,7 +153,7 @@ run_gate_1() {
 
   echo "  Design specs under test:"
   for f in "${DESIGN_FILES[@]}"; do
-    echo "    - ${f#$SCRIPT_DIR/}"
+    echo "    - ${f#$PROJECT_ROOT/}"
   done
   echo ""
 
@@ -156,7 +179,7 @@ run_gate_2() {
   echo "  theorems its banner named did not exist anywhere in the repo."
   echo ""
 
-  if ! node "$SCRIPT_DIR/cli/theorem-run.js"; then
+  if ! node "$SCRIPT_DIR/cli/theorem-run.js" --properties-dir "$PROPERTIES_DIR"; then
     echo ""
     echo -e "${RED}✗ Gate 2 FAILED${NC}: a design theorem does not hold."
     echo ""
@@ -197,23 +220,32 @@ run_gate_3() {
   local do_emit=false
   if [ "$EMIT" = true ]; then do_emit=true; fi
 
-  local emitter_path="$SCRIPT_DIR/codegen/emitters/card-emitter.js"
-  if [ ! -f "$emitter_path" ]; then
-    fail_gate 3 "card-emitter.js not found at $emitter_path"
+  # Emitters are discovered, not named. This used to hard-fail unless
+  # codegen/emitters/card-emitter.js existed by that exact filename, which made
+  # the gate unusable for any project that does not ship witness's own Card.
+  if [ ! -d "$EMITTERS_DIR" ]; then
+    fail_gate 3 "emitters directory not found: $EMITTERS_DIR (set WITNESS_EMITTERS_DIR or --project-root)"
+  fi
+  local EMITTER_PATHS=($(find "$EMITTERS_DIR" -maxdepth 1 -name "*-emitter.js" \
+    ! -name "*stub*" ! -name "demo-*" | sort))
+  if [ ${#EMITTER_PATHS[@]} -eq 0 ]; then
+    fail_gate 3 "no *-emitter.js found in $EMITTERS_DIR"
   fi
 
-  # Run the emitter (it prints summary on CLI; we also invoke programmatically for checks)
-  echo "  Invoking emitter..."
-  if $do_emit; then
-    echo "  (write mode: artifacts will be written under codegen/emitters/generated/card/)"
-    if ! node "$emitter_path" --emit 2>&1; then
-      fail_gate 3 "Emitter failed during --emit write (see output above)"
+  # Run each emitter (it prints a summary on CLI; we also invoke programmatically below)
+  echo "  Invoking ${#EMITTER_PATHS[@]} emitter(s)..."
+  for emitter_path in "${EMITTER_PATHS[@]}"; do
+    if $do_emit; then
+      echo "  (write mode: ${emitter_path##*/} artifacts will be written under $GENERATED_DIR/)"
+      if ! node "$emitter_path" --emit 2>&1; then
+        fail_gate 3 "${emitter_path##*/} failed during --emit write (see output above)"
+      fi
+    else
+      if ! node "$emitter_path" 2>&1 | tail -5; then
+        fail_gate 3 "${emitter_path##*/} failed to produce artifacts (see output above)"
+      fi
     fi
-  else
-    if ! node "$emitter_path" 2>&1 | tail -5; then
-      fail_gate 3 "Emitter failed to produce artifacts (see output above)"
-    fi
-  fi
+  done
 
   # Programmatic fidelity check — now uses the fidelity convention:
   #   auto-discover codegen/emitters/*-emitter.js (excluding stubs)
@@ -223,13 +255,15 @@ run_gate_3() {
   #     using local ./node_modules/.bin/tsc if present, else npx --yes typescript (cached)
   # This makes Gate 3 discover+enforce for new components with zero changes to this script.
   echo "  Running fidelity assertions (auto-discover emitters + declared fidelityChecks + tsc on TS)..."
-  export SCRIPT_DIR
+  export SCRIPT_DIR EMITTERS_DIR GENERATED_DIR PROJECT_ROOT PROJECT_TSCONFIG
   if ! node -e '
     const path = require("path");
     const fs = require("fs");
     const { execSync } = require("child_process");
     const scriptDir = process.env.SCRIPT_DIR || process.cwd();
-    const emittersDir = path.join(scriptDir, "codegen", "emitters");
+    const projectRoot = process.env.PROJECT_ROOT || scriptDir;
+    const emittersDir = process.env.EMITTERS_DIR || path.join(scriptDir, "codegen", "emitters");
+    const generatedDir = process.env.GENERATED_DIR || path.join(emittersDir, "generated");
     let emitterFiles = [];
     try {
       emitterFiles = fs.readdirSync(emittersDir).filter(function(f) {
@@ -280,7 +314,17 @@ run_gate_3() {
         // while tsc and freerange ran against the files, and nothing compared
         // the two — so a stale generated/ directory, or a hand-edit to it,
         // passed every gate. They happened to match; nothing enforced it.
-        const genDir = path.join(scriptDir, "codegen", "emitters", "generated", "card");
+        //
+        // The output directory belongs to the emitter, declared via its
+        // outDirName export (falling back to the filename stem: alert-emitter.js
+        // -> alert). It was hardcoded to generated/card for EVERY discovered
+        // emitter, so a second component regeneration check silently no-opped —
+        // or, worse, diffed its output against the Card artifacts on a filename
+        // collision.
+        const outDirName = (typeof mod.outDirName === "string" && mod.outDirName)
+          ? mod.outDirName
+          : ef.replace(/-emitter\.js$/, "");
+        const genDir = path.join(generatedDir, outDirName);
         if (fs.existsSync(genDir)) {
           for (const name of Object.keys(files)) {
             const onDisk = path.join(genDir, name);
@@ -323,11 +367,21 @@ run_gate_3() {
         // step: shallow marker + tsc is the fast path; this exercises the runtime
         // path that the emitted code would take and cross-checks against Gate 1/2 proofs.
         // Opt-out: WITNESS_GATE4_SEMANTIC=0 (keeps gate fast while developing).
-        // When present on any emitter it is exercised automatically — Card is first.
-        if (ef === "card-emitter.js" && typeof mod.runSemanticCardVerification === "function") {
+        //
+        // Any emitter exporting runSemanticVerification() gets this, not just
+        // Card. The filename equality test that used to guard it meant a new
+        // component could ship a semantic verifier that was never once called,
+        // while the gate still reported green. runSemanticCardVerification is
+        // accepted as the legacy name so the Card emitter keeps working.
+        const semanticFn = (typeof mod.runSemanticVerification === "function")
+          ? mod.runSemanticVerification
+          : (typeof mod.runSemanticCardVerification === "function")
+            ? mod.runSemanticCardVerification
+            : null;
+        if (semanticFn) {
           if (process.env.WITNESS_GATE4_SEMANTIC !== "0") {
             try {
-              const sem = await mod.runSemanticCardVerification();
+              const sem = await semanticFn.call(mod);
               if (sem && sem.pass) {
                 console.log("  ✓ " + ef + " (semantic: factories + Yoga vs contract obligations)");
                 if (sem.geometry) {
@@ -351,11 +405,18 @@ run_gate_3() {
       // Full, authoritative TypeScript + numeric-range enforcement is Gate 4 (freerange, a
       // strict superset of tsc, over this exact tsconfig.json). This is a fast local echo of
       // that so Gate 3 fails fast without waiting on Gate 4.
-      const localTsc = path.join(scriptDir, "node_modules", ".bin", "tsc");
-      const rootTsconfig = path.join(scriptDir, "tsconfig.json");
-      if (fs.existsSync(localTsc) && fs.existsSync(rootTsconfig)) {
+      // Resolve tsc and the tsconfig against the PROJECT being gated, falling
+      // back to the witness package. A consumer typecheck must use the
+      // consumer tsconfig; using witness own config would check witness files.
+      const tscCandidates = [
+        path.join(projectRoot, "node_modules", ".bin", "tsc"),
+        path.join(scriptDir, "node_modules", ".bin", "tsc"),
+      ];
+      const localTsc = tscCandidates.find(function(p) { return fs.existsSync(p); });
+      const rootTsconfig = process.env.PROJECT_TSCONFIG || path.join(projectRoot, "tsconfig.json");
+      if (localTsc && fs.existsSync(rootTsconfig)) {
         try {
-          execSync("\"" + localTsc + "\" -p \"" + rootTsconfig + "\"", { cwd: scriptDir, stdio: "pipe", timeout: 180000 });
+          execSync("\"" + localTsc + "\" -p \"" + rootTsconfig + "\"", { cwd: projectRoot, stdio: "pipe", timeout: 180000 });
           console.log("  ✓ tsc -p tsconfig.json (project-wide; full enforcement is Gate 4)");
         } catch (e) {
           const out = ((e && (e.stdout || e.stderr)) || "").toString().slice(0, 1200);
@@ -419,21 +480,30 @@ run_gate_4() {
   echo "  call sites co-located to get real enforcement."
   echo ""
 
-  local fr_bin="$SCRIPT_DIR/node_modules/.bin/fr"
-  if [ ! -x "$fr_bin" ]; then
+  # freerange is a devDependency of witness, so it is ABSENT after a normal
+  # install of witness as a dependency. Prefer the gated project's own copy and
+  # fall back to witness's — otherwise Gate 4 fails for every consumer with a
+  # message telling them to npm install inside node_modules/witness.
+  local fr_bin=""
+  for cand in "$PROJECT_ROOT/node_modules/.bin/fr" "$SCRIPT_DIR/node_modules/.bin/fr"; do
+    if [ -x "$cand" ]; then fr_bin="$cand"; break; fi
+  done
+  if [ -z "$fr_bin" ]; then
     echo -e "${RED}✗ Gate 4 FAILED${NC}: freerange is not installed."
     echo ""
     echo -e "${YELLOW}Actionable fixes:${NC}"
-    echo "  1. Run: npm install   (installs the @chenglou/freerange devDependency)"
+    echo "  1. Run, in $PROJECT_ROOT:  npm install -D @chenglou/freerange"
     echo "  2. Verify: ./node_modules/.bin/fr    (should run against ./tsconfig.json, not error 'not found')"
     echo "  3. Re-run: ./bin/witness-design-gates.sh --gate 4"
+    echo ""
+    echo "  Note: freerange requires strictNullChecks; your tsconfig.json must set it."
     echo ""
     exit 1
   fi
 
-  echo "  Running: ./node_modules/.bin/fr   (cwd=$SCRIPT_DIR, resolves ./tsconfig.json)"
+  echo "  Running: $fr_bin   (cwd=$PROJECT_ROOT, resolves ./tsconfig.json)"
   local fr_output fr_exit=0
-  fr_output=$(cd "$SCRIPT_DIR" && "$fr_bin" 2>&1) || fr_exit=$?
+  fr_output=$(cd "$PROJECT_ROOT" && "$fr_bin" 2>&1) || fr_exit=$?
   echo "$fr_output" | sed 's/^/  /'
   echo ""
 
@@ -525,21 +595,29 @@ Usage:
   npm run gates [-- options]
 
 Options:
-  --gate <spec>     Run a single gate only. <spec> can be: 1, 2, 3, 4, 5, tc, proofs, audit, design,
-                    property, regen, hash, tcb, emit, emitter, fr, freerange, numeric, range
-  --quick           Run Gates 1 + 2 only (skip TCB audit + emitter + freerange). Fast for inner dev loop.
-  --full            Run all five gates (default).
-  --emit            When running Gate 3, also write the emitted Card.tsx + card.css to codegen/emitters/generated/card/
-                    over the emitted layout TS (skips gracefully with a note if that file doesn't exist yet).
+  --gate <spec>     Run a single gate only. <spec> can be: 1, tc, design ; 2, proofs, property ;
+                    3, emit, emitter, codegen ; 4, fr, freerange, numeric, range
+  --quick           Run Gates 1 + 2 only (skip emitter + freerange). Fast for the inner dev loop.
+  --full            Run all four gates (default).
+  --emit            When running Gate 3, also write each emitter's artifacts to disk under
+                    <emitters>/generated/<outDirName>/ before checking them.
+  --project-root D  Gate the project at D instead of the witness package itself. D supplies
+                    specs/design/, specs/ui/properties/, codegen/emitters/, .witness/ and
+                    tsconfig.json; witness supplies the proof machinery. Also settable as
+                    WITNESS_PROJECT_ROOT.
   -h, --help        Show this help.
+
+Individual directory overrides (each defaults under --project-root):
+  WITNESS_DESIGN_SPECS_DIR, WITNESS_PROPERTIES_DIR, WITNESS_EMITTERS_DIR,
+  WITNESS_GENERATED_DIR, WITNESS_TSCONFIG
 
 Examples:
   npm run gates
   ./bin/witness-design-gates.sh --quick
-  ./bin/witness-design-gates.sh --gate audit
   ./bin/witness-design-gates.sh --gate 3
   ./bin/witness-design-gates.sh --emit --gate 3
   ./bin/witness-design-gates.sh --gate 4
+  ./bin/witness-design-gates.sh --project-root ~/projects/my-app
 
 This runner is the enforcement mechanism for the self-hosting design specs.
 It will be wired into CI, the witness agent loop, and future Ralph-style autonomous evolution loops
@@ -579,6 +657,11 @@ while [[ $# -gt 0 ]]; do
       EMIT=true
       shift
       ;;
+    --project-root)
+      [[ $# -lt 2 ]] && { echo "Missing argument for --project-root"; usage; exit 1; }
+      PROJECT_ROOT="$(cd "$2" && pwd)" || { echo "--project-root: no such directory: $2"; exit 1; }
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -591,9 +674,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Fill in any directory the caller did not override. Done after arg parsing so
+# --project-root is already final.
+DESIGN_SPECS_DIR="${DESIGN_SPECS_DIR:-$PROJECT_ROOT/specs/design}"
+PROPERTIES_DIR="${PROPERTIES_DIR:-$PROJECT_ROOT/specs/ui/properties}"
+EMITTERS_DIR="${EMITTERS_DIR:-$PROJECT_ROOT/codegen/emitters}"
+GENERATED_DIR="${GENERATED_DIR:-$EMITTERS_DIR/generated}"
+PROJECT_TSCONFIG="${PROJECT_TSCONFIG:-$PROJECT_ROOT/tsconfig.json}"
+# Consumed by boot.js (sibling `(load …)` resolution) and by the cli/ entry
+# points, which each take the same env var.
+export WITNESS_PROJECT_ROOT="$PROJECT_ROOT"
+
 echo -e "${BOLD}=== Witness design-fidelity gates ===${NC}"
 echo "The Witness proof system validates its own contracts."
 echo "This backpressure protects evolution toward the full Shen UI Specifications (design doc)."
+if [ "$PROJECT_ROOT" != "$SCRIPT_DIR" ]; then
+  echo ""
+  echo "  gating project: $PROJECT_ROOT"
+  echo "  witness package: $SCRIPT_DIR"
+fi
 echo ""
 
 TOTAL_START=$SECONDS
@@ -641,12 +740,12 @@ echo "Design contracts + README:"
 echo "  specs/design/README.md  (Gate structure, contracts, how to extend backpressure)"
 echo ""
 echo "Common commands:"
-echo "  npm run gates          # full suite (Gates 1-5, recommended before PRs)"
+echo "  npm run gates          # full suite (Gates 1-4, recommended before PRs)"
 echo "  npm run gates -- --quick"
 echo "  ./bin/witness-design-gates.sh --gate 3      # emitter fidelity only"
 echo "  ./bin/witness-design-gates.sh --emit --gate 3   # regenerate emitted artifacts + check"
 echo "  ./bin/witness-design-gates.sh --gate 4       # freerange numeric-range enforcement only"
-echo "  ./bin/witness-design-gates.sh --gate audit   # quick TCB drift check"
+echo "  ./bin/witness-design-gates.sh --project-root DIR  # gate a consuming project"
 echo ""
 echo "To strengthen backpressure further:"
 echo "  - Add more *.shen under specs/design/ (e.g. ui-component-fidelity.shen, codegen-emitter-fidelity.shen)"

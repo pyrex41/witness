@@ -7,7 +7,11 @@
     ".": "./boot.js",
     "./astro": "./astro/index.js",
     "./astro/server": "./astro/server.js",
-    "./astro/runtime": "./astro/runtime.js"
+    "./astro/runtime": "./astro/runtime.js",
+    "./lib/*": "./lib/*.js",
+    "./cli/*": "./cli/*.js",
+    "./codegen/*": "./codegen/*.js",
+    "./package.json": "./package.json"
   },
   "bin": {
     "witness": "./cli/check.js",
@@ -27,6 +31,7 @@
     "test:tc": "node test/tc-enforcement.test.js"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.3",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "astring": "^1.4.3",
     "awaitify-stream": "^1.0.2",

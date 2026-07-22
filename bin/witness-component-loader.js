@@ -7,10 +7,10 @@
  * - Discovers all specs/ui/properties/*-properties.shen files (the convention
  *   for protected component high-level contracts + design-fidelity theorems).
  * - Can print the exact (load "...") forms for inclusion.
- * - --update : safely rewrites the managed section inside
- *   specs/design/the prelude so that Gate 1/2 automatically cover
- *   every component's properties with ZERO manual wiring or edits to
- *   witness-core.shen when a new *-properties.shen is added.
+ * - --update : safely rewrites the managed section inside the Shen prelude
+ *   (shen/witness-sbcl.shen) so that Gate 1/2 automatically cover every
+ *   component's properties with ZERO manual wiring when a new
+ *   *-properties.shen is added.
  *
  * This (plus the per-emitter fidelityChecks[] + Gate 4 auto-discovery of
  * *-emitter.js) completes the "mechanical -> turnkey" step for protected
@@ -26,7 +26,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..');
+// The project whose contracts are being wired into a prelude. Defaults to the
+// witness package, so in-repo behaviour is unchanged; a consumer sets
+// WITNESS_PROJECT_ROOT (or passes --project-root) and the loader discovers and
+// rewrites ITS files instead of witness's.
+const PACKAGE_ROOT = path.join(__dirname, '..');
+function argValue(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && i < process.argv.length - 1 ? path.resolve(process.argv[i + 1]) : null;
+}
+const ROOT = argValue('--project-root') || process.env.WITNESS_PROJECT_ROOT || PACKAGE_ROOT;
 const PROPERTIES_DIR = path.join(ROOT, 'specs', 'ui', 'properties');
 // Target the PRELUDE, not specs/design/witness-core.shen.
 //
@@ -118,7 +127,7 @@ function updateWitnessCore(dryRun = false) {
   const newContent = before + replacement + after;
 
   if (dryRun) {
-    console.log('--- DRY RUN: would write the following loads block to witness-core.shen ---');
+    console.log('--- DRY RUN: would write the following loads block to ' + path.relative(ROOT, WITNESS_CORE) + ' ---');
     console.log(newLoads);
     console.log('--- (no file modified) ---');
     return;
@@ -126,12 +135,12 @@ function updateWitnessCore(dryRun = false) {
 
   // Only write if changed (avoid unnecessary git noise)
   if (newContent === block.content) {
-    console.log('✓ witness-core.shen loads block already up to date (' + discoverProperties().length + ' component properties).');
+    console.log('✓ ' + path.relative(ROOT, WITNESS_CORE) + ' loads block already up to date (' + discoverProperties().length + ' component properties).');
     return;
   }
 
   fs.writeFileSync(WITNESS_CORE, newContent, 'utf8');
-  console.log('✓ Updated specs/design/witness-core.shen with current component properties loads:');
+  console.log('✓ Updated ' + path.relative(ROOT, WITNESS_CORE) + ' with current component properties loads:');
   console.log(newLoads.split('\n').map(l => '    ' + l).join('\n'));
 }
 
@@ -142,14 +151,14 @@ Tiny generic loader for protected UI component contracts.
 
 Discovers specs/ui/properties/*-properties.shen (the convention for
 high-level verified-* datatypes + *-design-fidelity theorems) and
-keeps the load list inside specs/design/witness-core.shen in sync.
+keeps the load list inside the Shen prelude (shen/witness-sbcl.shen) in sync.
 
 This removes the last piece of manual wiring when adding a new
 protected component under the design gates (Gate 1/2).
 
 Options:
   --print-loads, -p     Print the (load "...") statements for the discovered files (stdout)
-  --update, -u          Rewrite the managed section in witness-core.shen (idempotent)
+  --update, -u          Rewrite the managed section in the prelude (idempotent)
   --dry-run, -n         With --update: show what would change, do not write
   --help, -h            This help
 
@@ -157,8 +166,11 @@ Examples:
   node bin/witness-component-loader.js --print-loads
   node bin/witness-component-loader.js --update
 
-to run the update (or let the scaffolder do it). Gate 1/2 then see it
-automatically via the witness-core load. Gate 4 sees the emitter automatically.
+  WITNESS_PROJECT_ROOT=/path/to/project node bin/witness-component-loader.js --update
+  node bin/witness-component-loader.js --project-root /path/to/project --update
+
+Gates 1/2 then see the contract automatically via the prelude load, and Gate 3
+discovers its emitter automatically.
 `);
 }
 

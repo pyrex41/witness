@@ -26,8 +26,37 @@ const path = require('path');
 const { boot } = require('../boot');
 
 const repoRoot = path.join(__dirname, '..');
-const PRELUDE = ['.witness/measurements.shen', 'shen/witness-sbcl.shen'];
-const CONTRACT_DIRS = [path.join(repoRoot, 'specs', 'ui', 'properties')];
+
+// The project whose theorems are being run. Defaults to the witness package, so
+// behaviour inside this repo is unchanged; a consumer points it elsewhere and
+// gets ITS contracts discovered instead. Previously the contract directory was
+// a hardcoded constant, so Gate 2 could only ever see witness's own theorems —
+// a downstream run reported green having executed none of the caller's.
+const argv = process.argv.slice(2);
+function flagValues(name) {
+  const out = [];
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === name) out.push(path.resolve(argv[i + 1]));
+  }
+  return out;
+}
+const projectRoot = flagValues('--project-root')[0]
+  || process.env.WITNESS_PROJECT_ROOT
+  || repoRoot;
+
+const dirFlags = flagValues('--properties-dir');
+const CONTRACT_DIRS = dirFlags.length
+  ? dirFlags
+  : [path.join(projectRoot, 'specs', 'ui', 'properties')];
+
+// The prelude loads the contracts under tc- before the theorems are executed.
+// It follows the project, not the package: a consumer's shen/witness-sbcl.shen
+// loads its own *-properties.shen, and witness's own shen/*.shen still resolve
+// because boot() falls back to the package dir.
+const preludeFlags = flagValues('--prelude');
+const PRELUDE = preludeFlags.length
+  ? preludeFlags
+  : ['.witness/measurements.shen', 'shen/witness-sbcl.shen'].map(p => path.join(projectRoot, p));
 
 // (define NAME {--> boolean}  — a NULLARY boolean define, so it can simply be
 // called. Discovery is deliberately formatting-agnostic: the name and its
@@ -54,7 +83,7 @@ function discoverTheorems() {
       let m;
       THEOREM_RE.lastIndex = 0;
       while ((m = THEOREM_RE.exec(src)) !== null) {
-        found.push({ name: m[1], file: path.relative(repoRoot, path.join(dir, f)) });
+        found.push({ name: m[1], file: path.relative(projectRoot, path.join(dir, f)) });
       }
     }
   }
@@ -72,7 +101,7 @@ function isShenTrue(v) {
 async function main() {
   const theorems = discoverTheorems();
   if (theorems.length === 0) {
-    console.error('  ✗ No property theorems found in specs/ui/properties/*.shen.');
+    console.error(`  ✗ No property theorems found in: ${CONTRACT_DIRS.join(', ')}`);
     console.error('    A theorem is a nullary boolean define: (define name\\n  {--> boolean}\\n  -> ...).');
     console.error('    Passing with an empty theorem set is exactly the vacuity this gate exists to prevent.');
     process.exit(1);
@@ -80,11 +109,12 @@ async function main() {
 
   // Contracts load under tc- via the prelude; theorems are then EXECUTED, which
   // is a different and stronger check than Gate 1's type checking of them.
-  const $ = await boot({ skipLoad: true });
-  for (const rel of PRELUDE) {
+  const $ = await boot({ skipLoad: true, projectRoot });
+  for (const abs of PRELUDE) {
     try {
-      await $.load(path.join(repoRoot, rel));
+      await $.load(abs);
     } catch (e) {
+      const rel = path.relative(projectRoot, abs);
       console.error(`  ✗ prelude failed to load (${rel}): ${String((e && e.message) || e).split('\n')[0]}`);
       process.exit(1);
     }

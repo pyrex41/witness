@@ -35,7 +35,11 @@ const fs = require('fs');
 const os = require('os');
 const { boot } = require('../boot');
 
-const PRELUDE = ['.witness/measurements.shen', 'shen/witness-sbcl.shen'];
+// Resolved against the project being checked (WITNESS_PROJECT_ROOT), falling
+// back to the witness package. A consumer's prelude loads its own contracts;
+// witness's own shen/*.shen still resolve because boot() searches the package
+// dir as a fallback.
+const PRELUDE_RELS = ['.witness/measurements.shen', 'shen/witness-sbcl.shen'];
 
 // An ill-typed definition: the signature promises a number, the body returns a
 // string. Under tc+ this MUST fail to load. Used as a liveness probe for the
@@ -56,7 +60,10 @@ async function main() {
     process.exit(2);
   }
 
-  const repoRoot = path.join(__dirname, '..');
+  const packageRoot = path.join(__dirname, '..');
+  const projectRoot = process.env.WITNESS_PROJECT_ROOT || packageRoot;
+  const repoRoot = projectRoot;
+  const PRELUDE = PRELUDE_RELS.map(p => path.join(projectRoot, p));
   const probePath = writeProbe();
 
   let failed = 0;
@@ -80,12 +87,13 @@ async function main() {
     // Per-file isolation also stops one file's definitions from satisfying the
     // next file's references, and stops a half-loaded file from leaving partial
     // definitions behind that make a later file pass.
-    const $ = await boot({ skipLoad: true });
+    const $ = await boot({ skipLoad: true, projectRoot });
 
-    for (const rel of PRELUDE) {
+    for (const preludePath of PRELUDE) {
       try {
-        await $.load(path.join(repoRoot, rel));
+        await $.load(preludePath);
       } catch (e) {
+        const rel = path.relative(projectRoot, preludePath);
         console.error(`  ✗ failed to load ${rel} (proof prelude): ${firstLine(e)}`);
         console.error('    The prelude must load cleanly before any spec can be checked.');
         process.exit(1);

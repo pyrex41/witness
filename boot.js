@@ -48,7 +48,27 @@ async function boot(options = {}) {
   // top-level load and transitive `(load "shen/...")` calls inside witness.shen
   // find their files regardless of the caller's cwd. Absolute paths pass
   // through unchanged, so user code can still `$.load(absolutePath)`.
-  const resolveShenPath = p => path.isAbsolute(p) ? p : path.join(__dirname, p);
+  //
+  // A consuming project passes `projectRoot` (or sets WITNESS_PROJECT_ROOT) to
+  // get a second search root, tried FIRST. Without it, a downstream contract
+  // loaded by absolute path could not `(load "…")` a sibling of its own: the
+  // relative path was re-rooted into the witness package, so the consumer's own
+  // tokens/spec files were unreachable while witness's happened to resolve.
+  // Package-dir resolution remains the fallback, so `(load "specs/ui/tokens.shen")`
+  // still finds witness's copy when the consumer has no file by that name, and
+  // behaviour is unchanged when projectRoot is unset.
+  const projectRoot = options.projectRoot || process.env.WITNESS_PROJECT_ROOT || null;
+  const searchRoots = projectRoot ? [projectRoot, __dirname] : [__dirname];
+  const resolveShenPath = p => {
+    if (path.isAbsolute(p)) return p;
+    for (const root of searchRoots) {
+      const candidate = path.join(root, p);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    // Nothing matched: fall through to the package-dir path so the failure is
+    // reported against the same location it always was.
+    return path.join(__dirname, p);
+  };
   const $ = await new Shen({
     openRead: p => new InStream(resolveShenPath(p)),
     openWrite: p => new OutStream(resolveShenPath(p)),
