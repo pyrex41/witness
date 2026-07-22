@@ -94,6 +94,8 @@ type-checking pass is ~2s.
 
 Proofs **erase after compilation** — just like TypeScript types after `tsc`. Zero proof machinery ships to production. What survives is plain JS calling Textura for layout and DOM for rendering.
 
+That "erasure" is literal, and you can watch it happen. Once text is measured (at build time, by Pretext), the proof that it fits is pure arithmetic over a cached table — no canvas, no Yoga, no FFI. [ratatoskr](https://github.com/pyrex41/ratatoskr) tree-shakes that pure core (`examples/shake/proof.shen`) from Shen's 683-function kernel down to **102 reachable defuns, eval-free**, and [bifrost](https://github.com/pyrex41/bifrost) verifies the shaken proof runs **byte-identically on every Shen port** (shen-go, shen-lua, ShenScript, shen-swift). Try it: `bash docs/shake-demo.sh` (or `npm run shake:demo`). The live measurement/render path (`textura.measure`, `js.*`) deliberately does *not* shake — that's the host boundary, and it's supposed to be: the ruler runs at build time, the proof is what ships.
+
 ---
 
 ## The stack

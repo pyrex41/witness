@@ -28,7 +28,9 @@
     "design-gates:full": "bash bin/witness-design-gates.sh --full",
     "gates": "bash bin/witness-design-gates.sh",
     "loop": "bash bin/witness-loop.sh",
-    "test:tc": "node test/tc-enforcement.test.js"
+    "test:tc": "node test/tc-enforcement.test.js",
+    "shake": "ratatoskr shake examples/shake/proof.shen /tmp/witness-shake && echo \"shaken -> /tmp/witness-shake\"",
+    "shake:demo": "bash docs/shake-demo.sh"
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.8",

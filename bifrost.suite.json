@@ -1,0 +1,18 @@
+{
+  "name": "witness-proof",
+  "root": ".",
+  "programs_dir": "examples/shake",
+  "default_cwd": ".",
+  "strip_line_prefixes": [
+    "\""
+  ],
+  "cases": [
+    {
+      "name": "layout-proof-parity",
+      "mode": "script",
+      "program": "proof.shen",
+      "expect": "agreement",
+      "doc": "the pure-Shen Witness layout proof produces identical PROVEN/OVERFLOW output on every Shen port"
+    }
+  ]
+}
