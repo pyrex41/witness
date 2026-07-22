@@ -82,7 +82,7 @@ async function agent(files, maxIter, dryRun, respectDesignGates = false, gateSpe
           file: '<design-gates>',
           message:
             `DESIGN SPEC VIOLATION (Gate ${gateLabel} — high-priority backpressure):\n${gateOutput}\n\n` +
-            `The design contracts in specs/design/ (witness-core, load-order-trust, renderer contracts, ` +
+            `The design contracts in specs/design/ (witness-core, renderer contracts, ` +
             `Card verified datatypes, emitter fidelity, etc.) have been violated by the current state.\n\n` +
             `Remediation (exact instructions — follow these):\n` +
             `  1. Read the gate failure details above (full runner output).\n` +

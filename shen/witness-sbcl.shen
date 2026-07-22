@@ -22,7 +22,6 @@
 \\ in sync (no more hand-editing loads when adding a protected component).
 \\
 \\   - Run manually: node bin/witness-component-loader.js --update
-\\   - scaffolder (`witness spec-init Foo`) does this automatically after writing the skeleton.
 \\
 \\ Loaded under tc- so the contracts are available to every spec that Gate 1
 \\ then type-checks under tc+, with zero per-component wiring by hand.

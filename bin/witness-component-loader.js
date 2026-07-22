@@ -17,7 +17,6 @@
  * components.
  *
  * Used by:
- *   - `witness spec-init <Name>` (scaffolder invokes after writing skeleton)
  *   - Manual: node bin/witness-component-loader.js --update
  *   - CI / gates (optional pre-step, but committed state is authoritative)
  *
@@ -107,7 +106,6 @@ function updateWitnessCore(dryRun = false) {
     `${comment} in sync (no more hand-editing loads when adding a protected component).`,
     `${comment}`,
     `${comment}   - Run manually: node bin/witness-component-loader.js --update`,
-    `${comment}   - scaffolder (\`witness spec-init Foo\`) does this automatically after writing the skeleton.`,
     `${comment}`,
     `${comment} Loaded under tc- so the contracts are available to every spec that Gate 1`,
     `${comment} then type-checks under tc+, with zero per-component wiring by hand.`
@@ -158,9 +156,7 @@ Options:
 Examples:
   node bin/witness-component-loader.js --print-loads
   node bin/witness-component-loader.js --update
-  witness spec-init Button     # scaffolder creates + invokes this --update
 
-After adding a new *-properties.shen (by hand or via spec-init) you only need
 to run the update (or let the scaffolder do it). Gate 1/2 then see it
 automatically via the witness-core load. Gate 4 sees the emitter automatically.
 `);
