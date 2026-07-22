@@ -134,11 +134,11 @@ bin/witness-check.sh 46a9c68c1f33396255e3f37ca58977d3b08a9039326fc1377b0f958db93
 cli/measure.js 74bc5e940ba660da665fced08c6635ed667dfbacdbbdad1d39717bad5f195bf2
 cli/shen-check.js a7ae36ec28e5caac731f8315b097fccf48f23c802eeedbae778723f1ce155977
 cli/theorem-run.js 95af352c1988ee1097f7b62e15bb2a7b8badb2d60b253bca2e643480cd604b16
-cli/freerange-audit.js 810a11d34c08148265364ca42f06f1760d3a0d061334892272b079818ade3a3b
-bin/witness-design-gates.sh 1969d33df38d1d2947bd7cb393f4f2bdbfe1c609717e2d4ded3840543f5f9e86
+cli/freerange-audit.js e3ca92f0137d864a5ee81a07464a759e73ae10a2166b471422c6d22bc332e6c5
+bin/witness-design-gates.sh f103485336102a949a211797d35df9a43b4d014706797637a37ae6aa24059e64
 boot.js 3e9741f28517140a5a96618b3bbe654ae565cd2433c09ce03fcb9b36df5b0079
 lib/measure-core.js de4b69323cc3786274d7e2e5a302e3e07d7eea98d4e718eeab4f64cb19d06bce
-codegen/emitters/card-emitter.js 8d595a8d25612c91094e8feed35aa76433b803ad865dfdf49efa3e285395bfd4
+codegen/emitters/card-emitter.js e4925404f473a3222ba2177b88dd5ed188ba5ee2364a3775349e676894b566cc
 tsconfig.json 1b37cecd2314b22c4ca71d2bd02beec37beda1581a717793e837adbf83d92484
 specs/design/witness-core.shen a6173e2562e9ce0a2f692a81c1086bf81714b71151fc84e0aa5985b9ef5ccf4c
 specs/design/load-order-trust.shen c7c353813af921a08f9f87b450cac3e45ea2de377e9b54ae2327ecb8eedfb6f4
@@ -438,16 +438,45 @@ run_gate_4() {
           continue;
         }
         let files;
+        let meta = null;
         try {
-          files = await mod.emit({ writeToDisk: false, highLevel: true });
+          // Prefer emitWithMeta so checks can compare emitted values against the
+          // CONTRACT rather than against literals copied into the emitter.
+          if (typeof mod.emitWithMeta === "function") {
+            const r = await mod.emitWithMeta({ writeToDisk: false, highLevel: true });
+            files = r.files;
+            meta = { shape: r.shape };
+          } else {
+            files = await mod.emit({ writeToDisk: false, highLevel: true });
+          }
         } catch (e) {
           allFailures.push(ef + ": emit() threw: " + (e.message || e));
           continue;
         }
+
+        // REGENERATION CHECK: what the emitter produces now must equal what is
+        // committed on disk. Gate 4 ran its checks against the in-memory map
+        // while tsc and freerange ran against the files, and nothing compared
+        // the two — so a stale generated/ directory, or a hand-edit to it,
+        // passed every gate. They happened to match; nothing enforced it.
+        const genDir = path.join(scriptDir, "codegen", "emitters", "generated", "card");
+        if (fs.existsSync(genDir)) {
+          for (const name of Object.keys(files)) {
+            const onDisk = path.join(genDir, name);
+            if (!fs.existsSync(onDisk)) {
+              allFailures.push(ef + ": " + name + " is emitted but missing on disk (run --emit)");
+              continue;
+            }
+            if (fs.readFileSync(onDisk, "utf8") !== files[name]) {
+              allFailures.push(ef + ": " + name + " on disk differs from what the emitter produces (run --emit)");
+            }
+          }
+        }
+
         const checks = Array.isArray(mod.fidelityChecks) ? mod.fidelityChecks : [];
         for (const chk of checks) {
           try {
-            if (!chk.test || !chk.test(files)) {
+            if (!chk.test || !chk.test(files, meta)) {
               allFailures.push(ef + ": " + (chk.label || "unnamed fidelity check"));
             }
           } catch (e) {

@@ -3,7 +3,7 @@
 \\ Generator:  cli/freerange-audit.js
 \\ Invocation: node cli/freerange-audit.js codegen/emitters/generated/card/card-layout.ts --emit-shen specs/generated/numeric-bounds.shen
 \\ Source(s):  codegen/emitters/generated/card/card-layout.ts
-\\ Generated:  2026-07-22T01:25:54.184Z
+\\ Generated:  2026-07-22T15:44:31.558Z
 \\
 \\ Regenerate with:
 \\   node cli/freerange-audit.js codegen/emitters/generated/card/card-layout.ts --emit-shen specs/generated/numeric-bounds.shen
@@ -60,7 +60,7 @@
 
 \\ --- Not emitted (soundness gates above) ---
 \\   cardContentWidth (codegen/emitters/generated/card/card-layout.ts): open-or-unbounded-interval [236, null]
-\\   cardActionSlotWidth (codegen/emitters/generated/card/card-layout.ts): open-or-unbounded-interval [-Infinity, null]
-\\   cardActionsRowWidth (codegen/emitters/generated/card/card-layout.ts): open-or-unbounded-interval [-Infinity, Infinity]
+\\   cardActionSlotWidth (codegen/emitters/generated/card/card-layout.ts): open-or-unbounded-interval [53, null]
+\\   cardActionsRowWidth (codegen/emitters/generated/card/card-layout.ts): return-may-be-non-finite
 \\   cardTitleAndActionsFit (codegen/emitters/generated/card/card-layout.ts): no-parsed-ensures-return-fact
 \\   cardMobileActionsFitUnderTitle (codegen/emitters/generated/card/card-layout.ts): no-parsed-ensures-return-fact

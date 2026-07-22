@@ -1110,11 +1110,28 @@ function generateCardFixture(shape) {
   return JSON.stringify(fixture, null, 2) + '\n';
 }
 
+/**
+ * Same as emit(), but also returns the live contract shape.
+ *
+ * fidelityChecks need it: several of them asserted hardcoded literals (16, 8,
+ * 268, 400, 600), which is backwards — a LEGITIMATE token change in Shen failed
+ * the gate, while the checks could not notice the descriptor being wrong. Given
+ * the shape, a check can assert what it means: "the emitted constant equals the
+ * contract's value".
+ */
+async function emitWithMeta(options = {}) {
+  const files = await emit(options);
+  return { files, shape: lastEmittedShape };
+}
+
+let lastEmittedShape = null;
+
 async function emit(options = {}) {
   const { writeToDisk = false, outDir = null, highLevel = true, verifiedCard } = options;
 
   const $ = await bootAndLoadCardSpec();
   const shape = await extractCardShape($, { highLevel, verifiedCard });
+  lastEmittedShape = shape;
 
   const files = {
     'Card.tsx': generateCardTs(shape),
@@ -1331,20 +1348,40 @@ const FIDELITY_CHECKS = [
   // live shape changed), the check fails. Token drift is caught at Gate 4,
   // not just at Gate 5 (freerange).
   {
-    test: (files) => {
+    // Compares the EMITTED constant against the CONTRACT's value, rather than
+    // against a literal copied into this file. The literal version asserted
+    // 16 and 8, so changing space-4 in Shen — the supported workflow — turned
+    // the gate red, while the check itself could never detect the descriptor
+    // being wrong. When no shape is supplied the check abstains rather than
+    // passing on a technicality.
+    test: (files, meta) => {
+      // extractCardShape wraps the descriptor: the live (card-contract-shape)
+      // lives under .contractShape.
+      const shape = meta && meta.shape && (meta.shape.contractShape || meta.shape);
+      if (!shape || !shape.token_values) return false;
       const layout = files['card-layout.ts'] || '';
-      return /const SPACE_4 = 16;/.test(layout) && /const SPACE_2 = 8;/.test(layout);
+      const pairs = [['SPACE_4', 'space-4'], ['SPACE_2', 'space-2']];
+      return pairs.every(([constName, token]) => {
+        const expected = shape.token_values[token];
+        if (typeof expected !== 'number') return false;
+        return new RegExp(`const ${constName} = ${expected};`).test(layout);
+      });
     },
-    label: 'card-layout.ts: token_values constants (space-4, space-2) match exactly'
+    label: 'card-layout.ts: token constants equal the contract\'s token_values'
   },
   {
-    test: (files) => {
+    test: (files, meta) => {
+      const shape = meta && meta.shape && (meta.shape.contractShape || meta.shape);
+      if (!shape || !shape.variant_widths) return false;
       const layout = files['card-layout.ts'] || '';
-      return /const MOBILE_W = 268;/.test(layout)
-        && /const TABLET_W = 400;/.test(layout)
-        && /const DESKTOP_W = 600;/.test(layout);
+      const pairs = [['MOBILE_W', 'mobile'], ['TABLET_W', 'tablet'], ['DESKTOP_W', 'desktop']];
+      return pairs.every(([constName, variant]) => {
+        const expected = shape.variant_widths[variant];
+        if (typeof expected !== 'number') return false;
+        return new RegExp(`const ${constName} = ${expected};`).test(layout);
+      });
     },
-    label: 'card-layout.ts: variant_widths minimums (mobile/tablet/desktop) match exactly'
+    label: 'card-layout.ts: variant constants equal the contract\'s variant_widths'
   },
   {
     test: (files) => {
@@ -1379,6 +1416,7 @@ const FIDELITY_CHECKS = [
 
 module.exports = {
   emit,
+  emitWithMeta,
   generateCardTs,
   generateCardCss,
   generateCardLayoutTs,

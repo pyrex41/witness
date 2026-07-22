@@ -225,6 +225,9 @@ const RE_NUM_LOWER_ONLY = new RegExp(
 const RE_NUM_UPPER_ONLY = new RegExp(
   `^(.+) is a ${DOMAIN_ALT} (integer )?number (at most|less than) (\\S+)$`
 );
+// "<path> is boolean" / "is true" / "is false" / "is a string" — understood,
+// carries no interval.
+const RE_NON_NUMERIC = /^(.+) is (?:a |an )?(boolean|true|false|string|null|undefined)$/;
 const RE_NUM_UNBOUNDED = new RegExp(`^(.+) is a ${DOMAIN_ALT} (integer )?number$`);
 
 function domainFlags(domainWord) {
@@ -255,6 +258,24 @@ function parseNumericProseText(raw) {
   }
 
   let m;
+
+  // NON-NUMERIC ensures. freerange emits these routinely for boolean-returning
+  // functions ("return is boolean", "return is true"), and they were falling
+  // into unparsed[] — which meant the drift alarm was permanently ringing on
+  // healthy output and therefore never actionable. They are recognised and
+  // marked non-numeric: understood, but never a source of interval facts.
+  if ((m = body.match(RE_NON_NUMERIC))) {
+    return {
+      parsed: true,
+      numeric: false,
+      path: m[1],
+      kind: m[2],
+      lower: null,
+      upper: null,
+      blame,
+    };
+  }
+
   if ((m = body.match(RE_NUM_COMBO))) {
     const lowerIncl = m[4] === 'at least';
     const upperIncl = m[6] === 'at most';
@@ -676,15 +697,59 @@ function buildBoundsFacts(parsedFiles) {
 
   for (const pathResult of parsedFiles) {
     if (!pathResult.ok || !pathResult.report) continue;
+    const globalCoverage = pathResult.report.globalCoverage;
     for (const fileBlock of pathResult.report.files) {
       for (const fn of fileBlock.functions) {
-        const fullyAnalyzed =
+        // SOUNDNESS GATE 1 — "fully analyzed" must not be inferred from ABSENCE.
+        //
+        // This previously tested only that the partiallySupported / unsupported
+        // / skipped buckets were empty. Those buckets fill only when a line
+        // matches one of eight hardcoded labels, so if freerange renames a
+        // label its lines land in unparsed[] and the buckets stay empty — and
+        // the function is judged fully analyzed on the strength of output we
+        // failed to understand. Format drift would MANUFACTURE confidence
+        // instead of degrading to silence, the opposite of what this file's
+        // header promises.
+        //
+        // The per-file coverage header states the same fact independently, so
+        // require both to agree, and refuse to emit facts from a file whose
+        // output we did not fully understand.
+        const bucketsClean =
           fn.partiallySupported.length === 0 && fn.unsupported.length === 0 && fn.skipped.length === 0;
+        const cov = fileBlock.coverage || {};
+        const coverageAgrees =
+          cov.parsed === true &&
+          cov.partial === 0 &&
+          cov.unsupported === 0 &&
+          typeof cov.analyzed === 'number' &&
+          typeof cov.total === 'number' &&
+          cov.analyzed === cov.total;
+        const fileFullyUnderstood = (fileBlock.unparsed || []).length === 0;
+        // The trailing `coverage:` summary line is a THIRD independent
+        // statement of the same fact. For a single-file report it describes
+        // this file; when several files were audited it is a total, so it can
+        // only be required to agree when it is unambiguous.
+        const gc = globalCoverage || {};
+        const singleFileReport = (parsedFiles.length === 1) &&
+          (((parsedFiles[0].report || {}).files || []).length === 1);
+        const gcUsable = typeof gc.analyzed === 'number' && typeof gc.total === 'number';
+        const globalAgrees =
+          !singleFileReport ||
+          !gcUsable ||
+          (gc.partial === 0 && gc.unsupported === 0 && gc.analyzed === gc.total);
+        const fullyAnalyzed =
+          bucketsClean && coverageAgrees && fileFullyUnderstood && globalAgrees;
 
         // Prefer the top-level scalar `return` ensures fact (our generated
         // layout functions all return a single number). Nested-path facts
         // (e.g. "return.foo is ...") are out of scope for this spike.
-        const returnEnsures = fn.ensures.find((e) => e.parsed && e.path === 'return');
+        // Must be the NUMERIC return fact. Non-numeric ensures now parse too
+        // (see RE_NON_NUMERIC), and picking one here would report a boolean
+        // function as an "open-or-unbounded-interval" exclusion rather than
+        // what it is: a function with no interval to state.
+        const returnEnsures = fn.ensures.find(
+          (e) => e.parsed && e.path === 'return' && e.numeric !== false
+        );
 
         const baseName = camelToKebab(fn.name);
         let shenName = `fr-bound-${baseName}`;
@@ -700,6 +765,21 @@ function buildBoundsFacts(parsedFiles) {
         }
         if (!returnEnsures) {
           excluded.push({ function: fn.name, file: fileBlock.file, reason: 'no-parsed-ensures-return-fact' });
+          continue;
+        }
+        // SOUNDNESS GATE 2 — a possibly-NaN or possibly-non-finite return must
+        // not become a closed-interval fact. domainFlags() already computes
+        // these, and the generated file even writes companion finite?/integer?
+        // flags, but the gate never consulted them: an ensures of
+        // "return is a possibly NaN number from 100 through 200" passed every
+        // check and emitted (bounded 100 200). NaN satisfies no interval, so
+        // that fact is not merely imprecise, it is false.
+        if (returnEnsures.mayBeNaN || returnEnsures.possiblyNonFinite) {
+          excluded.push({
+            function: fn.name,
+            file: fileBlock.file,
+            reason: returnEnsures.mayBeNaN ? 'return-may-be-nan' : 'return-may-be-non-finite',
+          });
           continue;
         }
         if (
