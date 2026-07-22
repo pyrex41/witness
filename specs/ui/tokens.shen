@@ -12,6 +12,8 @@
 (datatype design-tokens
   ___ default-tokens : design-tokens;)
 
+(declare token-value [design-tokens --> [string --> number]])
+
 (define token-value
   Tokens Key -> (case Key
                   "space-4" -> 16
@@ -20,5 +22,3 @@
                   "text-action" -> 14
                   "radius-lg" -> 8
                   _ -> (simple-error (cn "Unknown token " Key))))
-
-(declare token-value [design-tokens --> [string --> number]])

@@ -12,6 +12,7 @@ The goal is self-hosting backpressure: as we evolve Witness (especially while bu
   1. `tc+` on the design specs (Gate 1 — catches broken claims in the spec).
   2. Execution of property proofs / cross-checks against the implementation.
   3. Emitter fidelity + regeneration/TCB audit (Gates 3 & 4 — the codegen bridge itself is protected).
+  4. Numeric range analysis over the emitted TypeScript (Gate 5 — freerange checks the arithmetic that Gate 4 only checks the shape of; see [Gate 5](#gate-5-numeric-range-analysis-freerange) below).
 - Regeneration + host "build" (in this case the proof run + CI) provides the enforcement, exactly like `shengen` + compiler in the sb pattern.
 - The LLM / human proposes changes; the gates + proof system say "no" if fidelity is lost.
 
@@ -66,7 +67,7 @@ npm run gates
 
 The gate runner re-uses the project's excellent two-phase checker (`bin/witness-check.sh`):
 - Phase 1: Node + Pretext measures all text in the design specs.
-- Phase 2: `shen-cl` (preferred) or `shen-sbcl` with `tc+` verifies all `: verified` premises.
+- Phase 2: ShenScript in-process (`cli/shen-check.js`) with `tc+` verifies all `: verified` premises — ~1s for the design specs, no native binary needed. `WITNESS_SHEN_ENGINE=native` runs `shen-cl` / `shen-sbcl` instead (an independent kernel, useful as a cross-check).
 
 Any violation becomes a hard failure (type error or overflow) before you can ship the change.
 
@@ -76,11 +77,12 @@ Any violation becomes a hard failure (type error or overflow) before you can shi
 - **Gate 2: Property Proofs** — The theorems (`tier-1-always-requires-literal`, `witness-core-design-fidelity`, `renderer-contract`, `card-design-fidelity`, etc.) are proven by the successful `tc+` of their defining file. The type checker *is* the proof engine.
 - **Gate 3: Regeneration / TCB Audit** — SHA-256 of the core TCB (`shen/witness.shen`, `trust.shen`, `layout.shen`, `proofs.shen`, `witness-sbcl.shen` (loader for `shen-cl` or `shen-sbcl`), renderers `ssr.shen`/`dom.shen`, `bin/witness-check.sh`, `cli/measure.js`) vs the committed manifest embedded in the runner. Fails on any drift. Directly analogous to sb-shen-backpressure's Gate 5 `tcb-audit`.
 - **Gate 4: Emitter Fidelity** — Auto-discovers `codegen/emitters/*-emitter.js`, runs each emitter on its spec/contracts (high-level verified-* walk), enforces the checks declared in the emitter's `fidelityChecks[]` export (brands, factories, tokens, semantic CSS, richer targets, etc.), and (new) runs `tsc --noEmit` (shim + temp tsconfig) on every emitted `*.tsx`. The Card emitter (`card-emitter.js`) is the seed; adding components is now turnkey (`witness spec-init`) + the tiny generic loader + the convention (no edits to any gate runner). The new tools + Gate 4 auto-discovery make the whole experience one-command for 80 % of the work. Protects the codegen bridge itself, stronger than before.
+- **Gate 5: Numeric Range Analysis** — Runs `fr` (freerange) over the TypeScript covered by the root `tsconfig.json`, principally the generated `codegen/emitters/generated/card/card-layout.ts`. Where Gate 4 checks that the emitter's *shape* (brands, tokens, factories) is faithful, Gate 5 checks that the *arithmetic* inside the generated numeric helpers can't violate the `console.assert` preconditions projected from the same Shen obligations. See [below](#gate-5-numeric-range-analysis-freerange) for the full write-up.
 
 **CLI options** (portable, works on macOS bash 3.2 + Linux):
-- `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`audit`, `tcb`, `regen`), `--gate 4` (`emit`, `emitter`, `codegen`)
-- `--quick` — Gates 1+2 only (skip TCB audit + emitter; ideal for inner loop)
-- `--full` — All four gates (default)
+- `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`audit`, `tcb`, `regen`), `--gate 4` (`emit`, `emitter`, `codegen`), `--gate 5` (`fr`, `freerange`, `numeric`, `range`)
+- `--quick` — Gates 1+2 only (skip TCB audit, emitter, and freerange; ideal for inner loop)
+- `--full` — All five gates (default)
 - `--emit` — For Gate 4: also write the emitted artifacts to `codegen/emitters/generated/card/`
 - `--update-manifest` — After intentional core changes, prints the new `FIDELITY_MANIFEST` here-doc to paste into the script
 - Colored output (auto off in CI / non-tty), per-gate timing, actionable failure messages pointing to this README.
@@ -106,6 +108,45 @@ A key step toward eliminating dual maintenance: `card-properties.shen` now expor
 This is the first concrete instance of the self-hosting codegen bridge: the same backpressure that makes "layout overflow a type error" for users now makes "emitter drift a gate failure" for the generator.
 
 Current state: Gate 4 is live and strong (auto-discovery, per-emitter `fidelityChecks[]`, real `tsc --noEmit`). Next steps: deeper emitter walker over live `verified-card` values, Yoga + Figma verification inside Gate 4, more output targets, and CI hardening. (See "To strengthen backpressure further" below.)
+
+### Gate 5: Numeric Range Analysis (freerange)
+
+Gate 4 answers "does the emitter faithfully project the contract shape?" — brands, tokens, factories, semantic CSS. It has nothing to say about whether the *arithmetic* inside a generated numeric helper can misbehave for some input the type checker never considered. That's a real gap: `card-properties.shen` proves obligations like "divide the available width by `actionCount`" hold *given a contract-shape value*, but the moment that math becomes plain TypeScript, Shen's proof no longer runs over it. Gate 5 closes that gap with [freerange](https://github.com/chenglou/freerange) (`@chenglou/freerange`), Cheng Lou's static numeric-range analyzer.
+
+**What it runs.** `./node_modules/.bin/fr`, invoked from the repo root so it picks up the root `tsconfig.json` (`"strict": true`, `include` covering `codegen/emitters/generated/**/*` and `codegen/ts/**/*`, `exclude` on `codegen/ts/demo/**`). freerange is a superset of `tsc`: it reports ordinary TypeScript errors first, then its own numeric findings. It tracks min/max/integer-ness/NaN/Infinity through every named top-level function, and reads a function's *leading* `console.assert(...)` calls as the caller's declared requirements — checked against every call site in the same file.
+
+**How to run it:**
+```bash
+./bin/witness-design-gates.sh --gate 5
+```
+(aliases: `fr`, `freerange`, `numeric`, `range`). Gate 5 is part of `--full` (the default) and skipped by `--quick`, alongside Gates 3 and 4.
+
+**What failure means.** A non-zero exit from `fr` means freerange found a call site where a declared numeric precondition — a `console.assert` the emitter projected straight from a Shen premise — is definitely or possibly false. Concretely: a caller passing `actionCount = 0` into `cardActionSlotWidth`, which the Shen obligation `actionCount >= 1` was supposed to rule out. A Gate 5 failure means the *emitted* arithmetic has drifted from what Shen proved — either the emitter regenerated stale, or a hand-written call site in `codegen/ts/**` violates the contract. Fix by regenerating (`./bin/witness-design-gates.sh --emit --gate 4`) or correcting the offending call; never by deleting the assert to make the gate pass.
+
+**Why the gate isn't vacuous.** Alongside the real generated module, `codegen/ts/demo/` carries a deliberately unsafe fixture (e.g. a call that divides by an `actionCount` of `0`) and a clean positive fixture exercising the same functions with in-range values. Both are excluded from the main tsconfig `include` (negative fixtures that fail-by-design can't sit in a `strict: true` build) and checked with targeted `fr <path>` invocations instead: the bad fixture is run *expecting* a finding, and Gate 5 itself fails if freerange stays silent on it. That's what proves the gate is actually checking something rather than passing because there was nothing to check.
+
+**The obligation → `console.assert` projection convention.** New component emitters that want Gate 5 coverage should follow the pattern established for Card layout math:
+- Emit one self-contained TypeScript module of **named, top-level, synchronous** functions doing the component's numeric layout arithmetic — freerange's supported subset.
+- **Inline every constant the arithmetic touches** (`const SPACE_4 = 16;` projected from `token_values`, not imported) — freerange does not analyze across file boundaries (see limitation (a) below), so an imported constant is invisible to it.
+- For each Shen obligation discharged over that arithmetic, emit a **leading** `console.assert(...)` expressing it as a precondition — direct calls only (no aliasing), literal / object-path / `.length` comparands, complex conditions extracted to a variable first. Put the caller's requirements first; anything after the leading run of asserts must be independently provable by freerange or it errors.
+- Trail each assert with a comment naming the Shen theorem or obligation it came from, so drift between the spec and the generated precondition is legible on sight.
+- Give the module **in-file call sites** (a positive demo consumer, at minimum) — an emitted function with no call site in the same file is never actually checked.
+- Extend the emitter's `fidelityChecks[]` so that every token/obligation the layout module depends on is asserted to appear in the generated file — the same convention Gate 4 already uses for `Card.tsx`, now applied to the numeric module, so a Shen value changing without regeneration fails Gate 4, not just Gate 5.
+
+```ts
+// GENERATED — obligation: card-variants-respect-minimum-content-width
+const SPACE_4 = 16;           // token_values.space-4, inlined (no import)
+const MOBILE_W = 268;         // variant_widths.mobile
+
+export function cardContentWidth(variantWidth: number): number {
+  console.assert(variantWidth >= MOBILE_W);   // ← projected Shen premise
+  return variantWidth - 2 * SPACE_4;
+}
+```
+
+**Two honest limitations, worth keeping in view every time this bridge comes up:**
+- **(a) freerange v0.0.2 does not enforce contracts across file imports.** The contracted function and its call sites must be in the same file — an imported function is simply not analyzed, and an imported constant only resolves if it's a numeric literal. This is why the projection convention above insists on self-contained modules and in-file call sites; without that, Gate 5 would be silently checking nothing. A fork adding cross-file propagation is being explored, but nothing in this repo should assume it exists yet.
+- **(b) freerange requires `strictNullChecks` and has no JSON output or programmatic API in v0.0.2.** The root `tsconfig.json` therefore has to run with `"strict": true` for `fr` to run at all. The audit bridge (`node cli/freerange-audit.js <path...> [--json] [--emit-shen <outfile>]`, feeding `specs/generated/numeric-bounds.shen` — the oracle for the `(bounded N)` sequent) has to scrape freerange's human-readable `--audit` text output rather than parse structured data, and it is deliberately non-fatal: unrecognized lines are collected, never fatal, and it always exits 0. A future freerange release changing its output format degrades the bridge to "no facts learned," not a broken build.
 
 ### Adding More Backpressure
 

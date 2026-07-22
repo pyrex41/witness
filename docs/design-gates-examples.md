@@ -12,6 +12,19 @@ The same proof engine (`fits?`, `tc+`, layout oracles, Figma structural checks) 
 
 The result: **you cannot silently drift the Card contracts or the emitter**. The gates + `witness loop` give you a first-class "Ralph-style" protected shell for evolving the UI spec layer.
 
+> **Why this design — the hybrid (Shen source-of-truth + low-effort deterministic generation)**
+>
+> Shen (`specs/ui/properties/card-properties.shen` + the live `(card-contract-shape)` descriptor) is the single source of truth for every verified datatype, slot field (`maxW`, `font`, `strategy`, `fits?` premises), variant matrix, token, obligation, and the exact construction shape used by `card-design-fidelity`.
+>
+> The emitter (`card-emitter.js`) is deliberately a thin, deterministic projector: it calls the Shen descriptor at runtime, parses the narrow list-of-pairs once, and drives canonical construction, walking, and all artifact generation from it. There is no complete hand-written JS mirror of the contracts.
+>
+> This hybrid delivers:
+> - Full formal power (sequent calculus, `:verified`, `tc+` proofs of layout/figma/responsive obligations) stays where the theorems are actually checked.
+> - Generation cost stays near-zero and is automatically kept in sync — the "what" (numbers, fields, variants) comes from the spec; the emitter only encodes the "how to emit" strategy.
+> - Gate 4 (`fidelityChecks[]` co-located with the emitter + auto-discovery + real `tsc --noEmit`) makes any drift a hard, loud failure.
+>
+> Newcomers: you edit the Shen spec and theorem; the emitter and generated code follow with minimal mechanical work. The gates (not humans) enforce fidelity. This is the direction of the entire Shen UI Specifications effort.
+
 ## 1. Targeted Gate Runs Focused on the Card
 
 Run individual gates or the fast inner-loop subset. These are the commands you reach for while iterating on `specs/ui/card-spec.shen`, `specs/ui/properties/card-properties.shen`, or the emitter.
@@ -262,7 +275,9 @@ The thin `examples/card.shen` just does `(load "specs/ui/card-spec.shen")` so ev
 
 ## 7. Recipe Card — Realistic End-to-End Flows & Protected Development Loop
 
-This section expands the quick command list into **narrative, scenario-driven recipes** that show exactly what a developer does when the high-level verified-card contracts and Gate 4 are live.
+This section expands the quick command list into **narrative, scenario-driven recipes** that show exactly what a developer does when the high-level verified-card contracts (powered by the `(card-contract-shape)` descriptor), the shape-driven emitter, and Gate 4 are live.
+
+The 60-second demo (`docs/card-protected-demo.sh`) and everything below remain the fastest way to feel the modern protected experience.
 
 ### Protected Development Loop — A Realistic 5–10 Minute Session
 
@@ -276,7 +291,7 @@ A typical focused session while evolving the Card emitter or contracts looks lik
      --gate 4 --dry-run --max-iter 8
    ```
 
-   You see the exact banner from `bin/witness-loop.sh`, the pre-iteration Gate 4 runs (high-level verified-card walk + fidelity markers), and clean "Done in N iterations" output. No risk. This 1–2 minutes of observation tells you the backpressure is working.
+   You see the exact banner from `bin/witness-loop.sh`, the pre-iteration Gate 4 runs (high-level verified-card walk driven by the live `(card-contract-shape)` descriptor + fidelity markers), and clean "Done in N iterations" output. No risk. This 1–2 minutes of observation tells you the backpressure (and the new tighter coupling) is working.
 
 2. **Go live — remove `--dry-run`**  
    Satisfied that the cadence is correct and the Card is still faithful, you drop the safety flag for real development:
@@ -310,7 +325,7 @@ The same pattern works for `--gate quick` (inner-loop speed) or `--gate full` (w
 
 **Scenario:** The design team relaxed the mobile title content constraint from 268 px to 280 px. This affects the canonical construction inside `card-design-fidelity`, the high-level walk inside the emitter, and the numbers baked into the generated `Card.tsx` factories.
 
-**Protected reality:** The high-level path in `card-emitter.js` consumes live contract shape from Shen and walks values constructed exactly as in `card-design-fidelity`. Any drift is caught by Gate 4 (structural + numeric fidelity) before it can ship. The loop keeps the edit-sync-verify cycle fast and deterministic.
+**Protected reality:** The high-level path in `card-emitter.js` consumes the live `(card-contract-shape)` descriptor from Shen (no hand mirror) and walks values constructed exactly as in `card-design-fidelity`. Any drift is caught by Gate 4 before it can ship. The loop keeps the edit-sync-verify cycle fast and deterministic.
 
 **Exact end-to-end commands (copy-paste, ~3 minutes to green):**
 
@@ -364,6 +379,66 @@ You can apply the identical discipline to:
 - Strengthening any of the three sub-theorems conjoined by `card-design-fidelity`
 
 In every case the commands are: edit spec → `witness gates --emit --gate 4` (or the loop) → green. (High-level data is now driven from the contract shape where possible.)
+
+### "I added a new slot in the Shen spec — what exactly changed in the emitter?" (the new tighter coupling in action)
+
+**Scenario:** The design team adds an optional "media" area (image / icon / illustration) at the top of the Card. This is a non-trivial structural change:
+
+- New `card-media-slot` datatype (with its own `maxW`/`font` or `strategy` + `fits?` premise if it carries a layout obligation).
+- Extension of the `verified-card` product type, the canonical construction inside `card-design-fidelity`, and — crucially — the machine-readable `(card-contract-shape)` descriptor (new entry under `"slots"`, new row in `"instanceShape"`).
+- The emitted `Card.tsx` + `card.css` must gain the corresponding Symbol brand, guarded factory, interface, semantic `card__media` class, and CSS rule.
+
+**Protected reality with the `*-contract-shape` pattern:** The high-level emitter path (`getCardContractShape`, `parseContractShape`, `makeCanonicalVerifiedCard`, `walkVerifiedCard`, `extractHighLevelCardShape`, and the generators) is deliberately written to *consume the live shape*. Once you extend the descriptor in Shen, the walked `shape` object automatically contains the new media data (defaults, maxW, etc.) pulled straight from the spec. The emitter code only needs the *small mechanical delta* required to emit the new artifact pieces for a slot of that kind. The data, the numbers, the field names — they all come from `(card-contract-shape)` at runtime. This is the reduced-duplication promise delivered.
+
+**Exact end-to-end commands (copy-paste, a few minutes to green):**
+
+```bash
+# 0. Everything green before you start
+witness gates --gate 4
+
+# 1. Edit the Shen source of truth (specs/ui/properties/card-properties.shen)
+#    - Define the new slot datatype + any fits? sequent it needs.
+#    - Update the canonical `card-design-fidelity` construction to include
+#      the media value via its mk- factory (so the theorem still proves).
+#    - Extend `card-contract-shape`: add the slot descriptor under "slots"
+#      and the matching ("key" "media" "slot" "media") row under "instanceShape".
+#    (The type checker will tell you immediately if a premise is un-discharged.)
+
+# 2. Confirm the spec change is still proven (Gate 1/2 only)
+witness gates --quick
+# Succeeds — you grew the proven surface; the new premises are satisfied.
+
+# 3. The high-level walk now sees the extended shape automatically
+#    (the emitter calls (card-contract-shape) and the instanceShape loop
+#     produces the media entry with zero hand-written JS data for it).
+
+# 4. Mechanical emitter work (the only "new code" you write)
+#    In codegen/emitters/card-emitter.js:
+#    - Extend the shape consumers (if not already fully generic) with a
+#      tiny branch for the media slot (ctor, defaults from slotDesc).
+#    - generateCardTs: emit CARD_MEDIA_BRAND, CardMedia interface,
+#      createCardMedia factory, and wire it into the VerifiedCard result.
+#    - generateCardCss: add the .card__media rule (and variant bits if any).
+#    - Add one new fidelityChecks entry for the media brand / class
+#      (co-located with the emitter; Gate 4 will discover and run it).
+
+# 5. Re-emit the artifacts and let Gate 4 + tsc protect the change
+witness gates --emit --gate 4
+witness gates --gate 4
+# ✓ new fidelity marker present
+# ✓ tsc --noEmit on the freshly emitted Card.tsx (now containing media)
+# ✓ all previous checks still pass
+
+# 6. Experience it inside the protected loop (recommended)
+witness loop codegen/emitters/card-emitter.js specs/ui/card-spec.shen \
+  specs/ui/properties/card-properties.shen \
+  --gate 4 --dry-run --max-iter 5
+# Watch Gate 4 run before every iteration. Drop --dry-run when ready.
+```
+
+**Outcome:** The new media slot is formally part of `verified-card` and proven by `card-design-fidelity` (Gate 1/2). The emitter high-level path picked up the extended contract shape with only the minimal emission logic added. Generated `Card.tsx` and `card.css` contain the new branded factory and semantic slot. Your new `fidelityChecks` entry (plus the existing ones) plus `tsc` are now enforced on every gate run and every loop iteration. You changed the authoritative Shen spec; the "dual maintenance" problem has been replaced by a shape descriptor + thin, auditable projector. Future slots, fields, or variants follow the identical low-tax pattern.
+
+This is exactly how the new tighter coupling works in practice — and why the design-gates + `witness loop` experience now feels so much lighter when evolving the UI specification layer.
 
 ### Quick Reference Commands (Copy-Paste)
 

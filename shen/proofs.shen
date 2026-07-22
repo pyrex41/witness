@@ -124,3 +124,61 @@
   ___ ellipsis : overflow;
   ___ clip : overflow;
   ___ visible : overflow;)
+
+\\ =====================================================================
+\\ === Tier 2 (numeric half): (bounded Lo Hi) — freerange range oracle ===
+\\ =====================================================================
+\\
+\\ APPENDED, ADDITIVE BLOCK. Nothing above this comment is touched —
+\\ layout-proofs and overflow-types are unchanged. shen/proofs.shen is in
+\\ the gate runner's TCB hash manifest (bin/witness-design-gates.sh's
+\\ CORE_FILES), so this addition is deliberately a *new* datatype rather
+\\ than an edit to the existing rules.
+\\
+\\ `(bounded Lo Hi)` is a DIFFERENT type from the `(bounded N)` rule above
+\\ (a 2-argument shape of the same head symbol `bounded`, vs. that rule's
+\\ 1-argument shape over string-length) — Shen's sequent matcher dispatches
+\\ structurally on the type term, so the two coexist without collision.
+\\
+\\ Where `(bounded N)` answers "is this string at most N chars?" (checked
+\\ against a live string value), `(bounded Lo Hi)` answers "is this number
+\\ known, for EVERY value a caller can produce, to lie in [Lo, Hi]?" — the
+\\ interval-arithmetic half of Tier 2 the README called "declared, not
+\\ wired". The oracle for Lo/Hi is external: cli/freerange-audit.js runs
+\\ `fr --audit` (@chenglou/freerange) over generated numeric layout code
+\\ and, for functions it can fully and soundly analyze, emits closed-
+\\ interval facts (`fr-bound-*`) into specs/generated/numeric-bounds.shen.
+\\ Lo/Hi below are typically read from one of those facts, not hand-typed.
+\\
+\\ HONEST LIMITATION: freerange is NUMBERS ONLY. This wires bounded
+\\ numeric WIDTHS and COUNTS (e.g. a generated card-layout.ts function's
+\\ return value). It does NOT wire bounded STRINGS / max-chars — that is
+\\ still, and only, the pre-existing `S : (bounded N)` rule above; nothing
+\\ here changes what that rule can prove, and freerange has nothing to say
+\\ about strings at all.
+
+(datatype numeric-range-proofs
+
+  \\ A number W, statically known to satisfy Lo <= W <= Hi for every value
+  \\ a caller can produce, carries the (bounded Lo Hi) type. This is the
+  \\ range-oracle analogue of the string (bounded N) rule above: same
+  \\ "compute a boolean, lift it to :verified" shape (see verified-lift in
+  \\ card-properties.shen for the established pattern this follows), but
+  \\ over a live pair of comparisons rather than a single string-length check.
+  W : number; Lo : number; Hi : number;
+  (<= Lo W) : verified;
+  (<= W Hi) : verified;
+  ________________________________________________
+  W : (bounded Lo Hi);
+
+  \\ Worst-case discharge: this is the "fits?-style obligation, discharged
+  \\ against a RANGE rather than a literal" the README described as
+  \\ deferred. If W is (bounded Lo Hi) and even the worst case (Hi) is
+  \\ still <= MaxW, then W <= MaxW for every value the caller can produce —
+  \\ not just the one value happened to be checked. Lo is threaded through
+  \\ so the conclusion names the whole witness (not just the binding Hi
+  \\ edge); it plays no role in this particular (upper-bound) discharge.
+  W : (bounded Lo Hi); MaxW : number;
+  (<= Hi MaxW) : verified;
+  ________________________________________________
+  (bound-fits? W Lo Hi MaxW) : verified;)

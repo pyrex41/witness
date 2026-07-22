@@ -72,10 +72,9 @@
   {--> boolean}
   -> (let TheAlert (alert info default-tokens)
        (and true true)))
-  ;; Construction of TheAlert discharges the verified-alert obligation under tc+ via lift.
-  ;; Trivial conjunction + construction = the proof that the scaling pattern holds.
-  ;; Gate 1 accepts this (illustrative contract only; see header).
-)
+  \\ Construction of TheAlert discharges the verified-alert obligation under tc+ via lift.
+  \\ Trivial conjunction + construction = the proof that the scaling pattern holds.
+  \\ Gate 1 accepts this (illustrative contract only; see header).
 
 (declare alert-design-fidelity {--> boolean})
 

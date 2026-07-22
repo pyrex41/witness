@@ -24,29 +24,24 @@
   container-type: inline-size;
 }
 
-/* Slot elements — names reflect the verified-card slots */
+/* Slot elements (and containers/items for lists) — ALL driven by slot descriptors in (card-contract-shape) */
 .card__title {
-  font: var(--font-title);
-  color: #111;
-  /* max-width projected from (card-contract-shape) slot descriptor */
-  max-width: 268px;
+  font: var(--font-action);
+  color: #444;
 }
 
 .card__desc {
   font: var(--font-action);
   color: #444;
-  /* handled-text ellipsis strategy is honoured by the emitted rules */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
+/* Slot container (actions) + items — driven by shape */
 .card__actions {
   display: flex;
   gap: var(--space-2);
 }
 
-/* Action buttons inside the actions slot */
+/* Items for actions slot (e.g. buttons) */
 .card__action {
   font: var(--font-action);
   padding: 8px 16px;  /* from token values */

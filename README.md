@@ -22,6 +22,11 @@ node cli/check.js check --figma examples/card-design.json examples/card.shen
 
 # Agent: parse structured overflow errors and auto-widen containers
 node cli/agent.js examples/card-overflow.shen
+
+# Tier 2: numeric bounds on the layout math downstream of the proofs
+./node_modules/.bin/fr examples/ts/grid-layout.ts          # clean — 7/7 analyzed
+./node_modules/.bin/fr examples/ts/grid-layout-broken.ts   # one range error, caught
+bash docs/freerange-demo.sh                                # the 60-second tour
 ```
 
 See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [`WITNESS_LEAN.md`](WITNESS_LEAN.md) for the spec and roadmap.
@@ -40,7 +45,8 @@ See [`docs/DEMO.md`](docs/DEMO.md) for the extended pitch with screenshots and [
 | SSR renderer → static HTML | works |
 | Structured error reports with fix suggestions (`dev` / `check` / `agent`) | works |
 | `witness agent` widen-fix loop | works |
-| Bounded-string worst-case proofs — `(bounded N)` type | declared, not wired |
+| `(bounded N)` for numeric layout params (widths, counts) | wired — `fr --audit` → `cli/freerange-audit.js` → `specs/generated/numeric-bounds.shen` (see [Gate 5](#gate-5-numeric-range-analysis-freerange)) |
+| `(bounded N)` for strings — worst-case `max-chars` | still declared, not wired — freerange is numbers-only, doesn't reach text |
 | DOM runtime (`run-app`, TEA) | library exists; browser harness TBD |
 
 ---
@@ -86,6 +92,7 @@ ShenScript           — runs Shen on JS, 60KB, 50ms startup
 Textura              — Pretext + Yoga: full DOM-free layout
   ├─ Pretext         — pure text measurement, 0.09ms/500 texts
   └─ Yoga WASM       — Facebook's flexbox engine (React Native)
+freerange            — static numeric range analyzer, checks generated TS arithmetic
 ──────────────────────────────────────────────────────────────
 Witness              — ~1.1k lines Shen + ~730 lines JS glue
 ```
@@ -99,6 +106,8 @@ Everything above the line exists and works. Witness itself is ~1,100 lines of Sh
 **Pretext** is Cheng Lou's canvas-based text measurement library. It uses `measureText` + `Intl.Segmenter` for near-perfect fidelity to browser layout — handling `white-space:normal`, `overflow-wrap:break-word`, bidi, CJK, and emoji. It achieves exceptional accuracy across engines at 0.09ms per 500 texts. No reflows, no DOM.
 
 **Textura** combines Pretext with Yoga (Meta's battle-tested flexbox engine from React Native), exposing a single `computeLayout(tree)` call that returns pure `{x, y, w, h}` output. It replaced a previous ~300-line hand-rolled flex solver — deleting the riskiest piece of custom code and replacing it with battle-tested infrastructure.
+
+**freerange** is, like Pretext, Cheng Lou's work: a static numeric-range analyzer for TypeScript. It tracks min/max/integer-ness/NaN/Infinity for every number through named top-level functions, and reads a function's leading `console.assert(...)` calls as the caller's requirements — checking every call site against them. There's a pleasing symmetry in that: Witness already stands on Cheng Lou's measurement stack (Pretext for text, Yoga/Textura for layout), and freerange closes the one gap that stack couldn't reach — the plain arithmetic a code generator writes once a Shen obligation leaves the type checker and becomes TypeScript. See [Gate 5](#gate-5-numeric-range-analysis-freerange) below.
 
 **ShenScript** runs Shen on Node.js / browsers with a tiny footprint and clean foreign-function interop.
 
@@ -278,11 +287,36 @@ npm run gates
 
 **Current gates** (numbered, individually addressable, with TCB/regeneration audit):
 
-1. `tc+` on all design specs (using the real `fits?` / Pretext / `shen-cl` or `shen-sbcl` engine)
+1. `tc+` on all design specs (using the real `fits?` / Pretext measurement + ShenScript in-process for `tc+`; `WITNESS_SHEN_ENGINE=native` uses `shen-cl` / `shen-sbcl` instead)
 2. Property proofs / design theorems
 3. Regeneration audit (SHA-256 fidelity check on the Trusted Computing Base — `witness.shen`, `trust.shen`, `layout.shen`, renderers, checker, etc.)
+4. Emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, runs their `fidelityChecks[]`, `tsc`, and the high-level `verified-card` semantic walk)
+5. Numeric range analysis (`fr` / freerange over the emitted TypeScript — checks the arithmetic behind Gate 4's artifacts against `console.assert` preconditions projected from the same Shen obligations)
 
 This is the meta layer that will ensure the Card spike, `shen-witness` codegen emitter, semantic CSS, and guarded component factories stay faithful to their specs.
+
+### Gate 5: numeric range analysis (freerange)
+
+Gate 4 proves the *shape* of what the emitter writes — tokens, factories, brands — against the live `(card-contract-shape)`. It has nothing to say about the arithmetic a generated numeric helper performs. That's Gate 5's job, and it's a genuinely different kind of composition:
+
+1. **Shen proves the design over known values.** `card-properties.shen` discharges obligations like "a card's content width is `variant-width - 2 * space-4`, and every variant width is ≥ the minimum" against the baked constants in `(card-contract-shape)`.
+2. **The emitter projects those obligations into `console.assert` preconditions** in a self-contained generated module (`codegen/emitters/generated/card/card-layout.ts`) — one function per proven obligation, one assert per premise, a trailing comment naming the Shen theorem it came from.
+3. **freerange statically checks the arithmetic** against those asserts at every call site — catching a caller who could violate a precondition that Shen proved was excluded *for the values it knows about*.
+
+```ts
+// before — plain arithmetic, nothing for freerange to check
+return (available - SPACE_2 * (n - 1)) / n;          // n = 0 ⇒ silent NaN
+
+// after — Shen's `actionCount >= 1` obligation projected as a precondition
+console.assert(n >= 1);                               // from card-contract-shape
+return (available - SPACE_2 * (n - 1)) / n;           // freerange now proves n ≠ 0
+```
+
+Run it: `./bin/witness-design-gates.sh --gate 5` (aliases: `fr`, `freerange`, `numeric`, `range`). Full write-up — including the negative fixture that keeps the gate honest and the obligation → `console.assert` projection convention for new emitters — lives in [`specs/design/README.md`](specs/design/README.md).
+
+> **Two honest limitations.**
+> **(a) No cross-file enforcement upstream.** freerange v0.0.2 does not check contracts across `import`s — the contracted function and every call site must live in the *same file*. That's why the emitter writes self-contained modules with in-file call sites rather than importing shared layout math. **A fork under [`vendor/freerange`](vendor/freerange/WITNESS-FORK.md) closes this** with an opt-in `fr --cross-file` (default behaviour unchanged; 196/196 tests pass). On `examples/ts/cross-file/`, published 0.0.2 reports 0 findings while the fork catches both violations and lifts coverage from 2/4 to 4/4 functions. Gate 5 still runs the *published* binary — the fork is not yet the default.
+> **(b) It's a text-scraping, non-fatal bridge.** freerange hard-requires `strictNullChecks` and ships no JSON output or programmatic API in v0.0.2. The audit bridge (`cli/freerange-audit.js`) parses its human-readable `--audit` output and is deliberately non-fatal — a parse-shape change in a future release degrades to "no facts learned," not a broken build.
 
 See:
 - `specs/design/README.md`

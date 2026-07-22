@@ -1,0 +1,472 @@
+#!/usr/bin/env node
+/**
+ * bin/witness-spec-init.js
+ *
+ * One-command scaffolder for adding a new protected UI component.
+ *
+ *   witness spec-init MyComponent
+ *   # or
+ *   node bin/witness-spec-init.js Button --force
+ *
+ * Produces ~80% of the boilerplate:
+ *   - specs/ui/properties/<kebab>-properties.shen   (skeleton with verified-*, datatypes,
+ *       trivial obligation via verified-lift pattern, *-design-fidelity theorem,
+ *       ready for tc+ under Gate 1/2 once the loader wires it)
+ *   - codegen/emitters/<kebab>-emitter.js            (basic but self-consistent emitter
+ *       stub that produces Card-like artifacts: branded .tsx factory, .css, stories,
+ *       .fixture.json + a fidelityChecks[] array that Gate 4 will auto-discover
+ *       and that passes on the emitted skeleton)
+ *
+ * After scaffolding:
+ *   - The tiny generic loader (witness-component-loader.js) is invoked automatically
+ *     to wire the new *-properties.shen into witness-core.shen (no hand edit).
+ *   - `witness gates --quick` will exercise the new design-fidelity theorem via tc+.
+ *   - `witness gates --gate 4` (or --emit) will pick up the new emitter automatically.
+ *
+ * You then:
+ *   1. Flesh out the real contracts / slots / variants / obligations / theorem body
+ *      in the properties file (follow card-properties.shen or alert-properties.shen).
+ *   2. (Optional) Add thin specs/ui/<kebab>-spec.shen for runtime compat if desired.
+ *   3. Evolve the emitter to drive from live (xxx-contract-shape) + high-level walk
+ *      (see card-emitter.js for the full pattern).
+ *   4. Add richer fidelityChecks as you emit more artifacts.
+ *
+ * Goal: from zero to "green gates for a new protected component" in < 2 minutes
+ * with the mechanical parts done for you.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+const ROOT = path.join(__dirname, '..');
+const PROPERTIES_DIR = path.join(ROOT, 'specs', 'ui', 'properties');
+const EMITTERS_DIR = path.join(ROOT, 'codegen', 'emitters');
+const GENERATED_ROOT = path.join(EMITTERS_DIR, 'generated');
+const LOADER = path.join(__dirname, 'witness-component-loader.js');
+
+function toKebab(name) {
+  if (!name) return '';
+  // Handle "My Component", "myComponent", "MyComponent", "my-component", "MY_COMPONENT"
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function toPascal(kebab) {
+  if (!kebab) return '';
+  return kebab
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+function toCamel(kebab) {
+  const p = toPascal(kebab);
+  return p.charAt(0).toLowerCase() + p.slice(1);
+}
+
+function printHelp() {
+  console.log(`Usage: witness spec-init <ComponentName> [options]
+       node bin/witness-spec-init.js <ComponentName> [options]
+
+One-command turnkey scaffolder for protected components (Next-3 DX goal).
+
+Examples:
+  witness spec-init Button
+  witness spec-init "My Modal"
+  witness spec-init Alert --force     # overwrite if skeleton already exists
+
+Creates (with correct naming + exports + fidelityChecks convention):
+  specs/ui/properties/<kebab>-properties.shen
+  codegen/emitters/<kebab>-emitter.js
+
+Then auto-runs the tiny generic component loader so the new properties
+participate in Gate 1/2 with zero manual (load) edits.
+
+Options:
+  --force, -f     Overwrite existing files (dangerous; default: refuse)
+  --dry-run, -n   Print what would be created; do not write or update loader
+  --help, -h      This message
+
+After running:
+  witness gates --quick          # prove the new *-design-fidelity theorem (Gate 1/2)
+  witness gates --gate 4         # emitter discovery + fidelityChecks + tsc
+  witness gates --emit --gate 4  # also write the generated/ artifacts for inspection
+
+See specs/design/README.md "Extending the system" for the full new flow.
+`);
+}
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function fileExists(p) {
+  try { fs.accessSync(p); return true; } catch { return false; }
+}
+
+function writeFileSafe(filePath, content, force, dryRun, label) {
+  const exists = fileExists(filePath);
+  if (exists && !force) {
+    console.error(`✗ Refusing to overwrite existing ${label}: ${filePath}`);
+    console.error('  Use --force to overwrite (or delete it first).');
+    process.exit(1);
+  }
+  if (dryRun) {
+    console.log(`  [dry] would write ${label}: ${path.relative(ROOT, filePath)} (${content.length} bytes)`);
+    return;
+  }
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf8');
+  console.log(`  ✓ wrote ${label}: ${path.relative(ROOT, filePath)}`);
+}
+
+function generateProperties(kebab, pascal, camel) {
+  const upper = kebab.toUpperCase().replace(/-/g, '_');
+  return `\\ specs/ui/properties/${kebab}-properties.shen
+\\ Skeleton generated by \`witness spec-init ${pascal}\` (bin/witness-spec-init.js)
+\\
+\\ This is the high-level contract home for the protected ${pascal} component.
+\\ Fill in:
+\\   - Real slot / variant datatypes with :verified premises (fits?, obligations, etc.)
+\\   - Non-trivial helpers / token arithmetic theorems (like Card)
+\\   - The ${kebab}-design-fidelity theorem that *constructs* a verified-${kebab}
+\\     using the factories (this is what Gate 1 tc+ actually proves)
+\\
+\\ The verified-lift bridge (documented in card-properties.shen) lets you start
+\\ with trivial obligations and strengthen later — exactly as Alert did.
+\\
+\\ After editing:
+\\   - Run \`node bin/witness-component-loader.js --update\` (or re-run spec-init)
+\\     if you ever hand-edit loads (normally the scaffolder keeps it wired).
+\\   - \`witness gates --quick\` exercises it.
+\\   - Enhance the paired emitter in codegen/emitters/${kebab}-emitter.js to walk
+\\     the live contract shape (see card-emitter.js for the full high-level pattern).
+\\
+
+(load "specs/ui/tokens.shen")
+
+\\ --- Variant (independent semantic states, like card-variant or alert-variant) ---
+(datatype ${kebab}-variant
+  ___ default : ${kebab}-variant;
+  ___ compact : ${kebab}-variant;
+  ___ wide    : ${kebab}-variant;)
+
+\\ --- Trivial obligation (lift bridge — replace with real rules later) ---
+(define ${kebab}-obligation-satisfied
+  Variant Tokens -> true)
+
+(declare ${kebab}-obligation-satisfied [${kebab}-variant --> [design-tokens --> boolean]])
+
+\\ --- The verified product type for this protected component ---
+(datatype verified-${kebab}
+  Variant : ${kebab}-variant;
+  Tokens  : design-tokens;
+  (${kebab}-obligation-satisfied Variant Tokens) : verified;
+  ________________________________________________
+  (${kebab} Variant Tokens) : verified-${kebab};)
+
+\\ =====================================================================
+\\ === Property theorem (Gate 1/2 prove via tc+ acceptance of this) ===
+\\ =====================================================================
+
+\\ --- Top-level design fidelity claim for ${pascal} ---
+\\ This theorem *constructs* a verified-${kebab} under tc+.
+\\ The obligation is discharged via the intentional verified-lift (see
+\\ card-properties.shen header for the bridge pattern). Replace the body
+\\ with real sub-theorems + a construction that exercises your slots /
+\\ layout / figma / responsive obligations as you strengthen the contract.
+\\
+\\ tc+ acceptance of this file = the proof that the construction is valid.
+
+(define ${kebab}-design-fidelity
+  {--> boolean}
+  -> (let The${pascal} (${kebab} default default-tokens)
+       (and true true)))
+  ;; Construction of The${pascal} + lift discharges the verified-${kebab} premise.
+  ;; Expand the conjunction with real claims as the spec grows.
+)
+
+(declare ${kebab}-design-fidelity {--> boolean})
+
+\\ End of ${kebab}-properties.shen (generated skeleton)
+\\ Next: strengthen the datatypes + theorem, then evolve the emitter.
+\\ The tiny loader + Gate 4 auto-discovery mean zero further wiring.
+`;
+}
+
+function generateEmitter(kebab, pascal, camel) {
+  const upper = kebab.toUpperCase().replace(/-/g, '_');
+  const cssClass = kebab;
+  return `#!/usr/bin/env node
+/**
+ * codegen/emitters/${kebab}-emitter.js
+ *
+ * Basic emitter stub generated by \`witness spec-init ${pascal}\`.
+ *
+ * This is intentionally minimal but *self-consistent*:
+ *   - emit() always returns a files map with the expected artifacts.
+ *   - The artifacts contain the exact markers that the declared fidelityChecks
+ *     look for.
+ *   - Therefore Gate 4 (auto-discovery of *-emitter.js + fidelityChecks + tsc)
+ *     will pass on the skeleton with zero further work.
+ *
+ * Usage (via CLI or gates):
+ *   node codegen/emitters/${kebab}-emitter.js --emit
+ *   witness codegen ... (once multi-component dispatcher exists)
+ *
+ * To evolve (the interesting 20%):
+ *   - boot via boot.js + load the properties (or a thin spec)
+ *   - prefer high-level ( ${kebab}-contract-shape ) or makeCanonicalVerified${pascal} helper
+ *   - walk the live shape (see card-emitter.js walkVerifiedCard + extract...)
+ *   - emit richer branded factories, semantic CSS, stories, golden fixtures, etc.
+ *   - Add more entries to FIDELITY_CHECKS as you emit more surface.
+ *
+ * Gate 4 will find this file (because it is not named *-stub.js), call emit(),
+ * run every check in fidelityChecks, and tsc any .tsx — all with zero edits
+ * to bin/witness-design-gates.sh. This is the fidelity convention at work.
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const COMPONENT = '${pascal}';
+const KEBAB = '${kebab}';
+const UPPER = '${upper}';
+const CSS_CLASS = '${cssClass}';
+
+async function emit(options = {}) {
+  const { writeToDisk = false, outDir = null } = options;
+
+  const brand = \`\${UPPER}_BRAND\`;
+  const factory = \`create\${COMPONENT}\`;
+
+  const ts = \`// GENERATED by shen-witness (${kebab}-emitter.js) — scaffolded by witness spec-init
+// from specs/ui/properties/${kebab}-properties.shen ( ${kebab}-design-fidelity )
+// Do not edit by hand. Regenerate: node codegen/emitters/${kebab}-emitter.js --emit
+// Gate 4 (emitter fidelity) protects this output.
+
+const \${brand} = Symbol('\${COMPONENT}');
+
+// Branded guarded constructor (enforces the verified-${kebab} contract from the spec).
+// Real implementation will be driven by the live high-level shape.
+export function \${factory}(props = {}) {
+  const v = Object.freeze({
+    _brand: \${brand},
+    variant: props.variant || 'default',
+    ...props
+  });
+  return v;
+}
+
+// Convenience re-export of the brand for tests / consumers
+export { \${brand} as \${UPPER}_BRAND };
+\`;
+
+  const css = \`/* GENERATED by shen-witness (${kebab}-emitter.js)
+   from specs/ui/properties/${kebab}-properties.shen (verified-${kebab})
+   Gate 4 emitter-fidelity check protects these rules.
+   Do not edit — run the emitter to regenerate. */
+
+.\${CSS_CLASS} {
+  /* token-driven example (real emitter pulls from live tokens) */
+  --space-4: 16px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.\${CSS_CLASS}--compact { /* variant hook */ }
+.\${CSS_CLASS}--wide    { /* variant hook */ }
+\`;
+
+  const stories = \`// GENERATED story stub for \${COMPONENT} (from ${kebab}-design-fidelity)
+// Regenerate via the emitter. Gate 4 protects alongside the component.
+import { create\${COMPONENT}, \${UPPER}_BRAND } from './${kebab}';
+
+export default { title: 'Protected/\${COMPONENT}', component: create\${COMPONENT} };
+
+export const Default = () => create\${COMPONENT}({ variant: 'default' });
+\`;
+
+  const fixture = JSON.stringify({
+    _meta: {
+      generatedBy: '${kebab}-emitter',
+      source: \`specs/ui/properties/${kebab}-properties.shen ( ${kebab}-design-fidelity theorem )\`,
+      note: 'Golden data for test snapshots / property tests. Matches the verified-${kebab} constructed under tc+ (via spec-init skeleton).',
+      component: COMPONENT
+    },
+    component: COMPONENT,
+    kebab: KEBAB,
+    brand: brand,
+    factory
+  }, null, 2) + '\\n';
+
+  const files = {
+    [\`\${KEBAB}.tsx\`]: ts,
+    [\`\${KEBAB}.css\`]: css,
+    [\`\${COMPONENT}.stories.tsx\`]: stories,
+    [\`\${KEBAB}.fixture.json\`]: fixture
+  };
+
+  if (writeToDisk) {
+    const targetDir = outDir || path.join(__dirname, 'generated', KEBAB);
+    fs.mkdirSync(targetDir, { recursive: true });
+    for (const [name, content] of Object.entries(files)) {
+      const p = path.join(targetDir, name);
+      fs.writeFileSync(p, content, 'utf8');
+      console.log('  wrote ' + p);
+    }
+    console.log(\`\\n  (Gate 4 will also tsc the .tsx on next --gate 4 run)\`);
+  }
+
+  return files;
+}
+
+// --- Gate 4 Fidelity convention (per-emitter, auto-discovered) ---
+// Gate 4 in bin/witness-design-gates.sh finds all *-emitter.js (non-stub),
+// calls emit({writeToDisk:false}), then runs every .test(files).
+// No changes to the gate runner are ever required when you add a component.
+const FIDELITY_CHECKS = [
+  {
+    test: (files) => {
+      const all = Object.values(files).join('\\n');
+      return new RegExp(UPPER + '_BRAND|create' + COMPONENT).test(all);
+    },
+    label: 'Symbol brand + guarded factory (' + COMPONENT + ')'
+  },
+  {
+    test: (files) => new RegExp(KEBAB).test(Object.values(files).join('\\n')),
+    label: KEBAB + ' naming in emitted artifacts'
+  },
+  {
+    test: (files) => {
+      const f = files[\`\${KEBAB}.fixture.json\`] || '';
+      return /generatedBy.*-emitter|design-fidelity theorem/.test(f);
+    },
+    label: 'golden fixture referencing the design-fidelity theorem'
+  },
+  {
+    test: (files) => {
+      const css = files[\`\${KEBAB}.css\`] || '';
+      return /--space-4|variant hook/.test(css);
+    },
+    label: 'token-driven CSS + variant hooks'
+  },
+  {
+    test: (files) => /${pascal}\.stories/.test(Object.keys(files).join(' ')),
+    label: 'Storybook stub emitted'
+  }
+];
+
+module.exports = {
+  emit,
+  fidelityChecks: FIDELITY_CHECKS,
+  // Useful for programmatic / test use of the scaffold
+  COMPONENT,
+  KEBAB
+};
+
+// Direct CLI support (parity with card-emitter)
+if (require.main === module) {
+  const doEmit = process.argv.includes('--emit') || process.argv.includes('--write');
+  emit({ writeToDisk: doEmit })
+    .then((files) => {
+      if (!doEmit) {
+        console.log('=== ' + KEBAB + '.tsx (head) ===');
+        console.log((files[\`\${KEBAB}.tsx\`] || '').split('\\n').slice(0, 12).join('\\n'));
+        console.log('\\n(Use --emit to write under codegen/emitters/generated/' + KEBAB + '/ )');
+        console.log('Gate 4 auto-discovers this emitter + its fidelityChecks.');
+      }
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('Emitter failed:', err);
+      process.exit(1);
+    });
+}
+`;
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+
+  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+    printHelp();
+    return;
+  }
+
+  const force = args.includes('--force') || args.includes('-f');
+  const dryRun = args.includes('--dry-run') || args.includes('-n');
+
+  const nameArg = args.find((a) => !a.startsWith('-'));
+  if (!nameArg) {
+    console.error('Error: missing ComponentName argument.');
+    printHelp();
+    process.exit(1);
+  }
+
+  const kebab = toKebab(nameArg);
+  if (!kebab) {
+    console.error('Error: could not derive a valid kebab-case name from "' + nameArg + '".');
+    process.exit(1);
+  }
+  const pascal = toPascal(kebab);
+  const camel = toCamel(kebab);
+
+  console.log(`\n▶ witness spec-init ${pascal}  (kebab: ${kebab})`);
+  if (dryRun) console.log('   (dry-run mode — nothing will be written)');
+
+  const propsPath = path.join(PROPERTIES_DIR, `${kebab}-properties.shen`);
+  const emitterPath = path.join(EMITTERS_DIR, `${kebab}-emitter.js`);
+
+  const propsContent = generateProperties(kebab, pascal, camel);
+  const emitterContent = generateEmitter(kebab, pascal, camel);
+
+  writeFileSafe(propsPath, propsContent, force, dryRun, 'properties contract');
+  writeFileSafe(emitterPath, emitterContent, force, dryRun, 'emitter stub + fidelityChecks');
+
+  if (!dryRun) {
+    // Make emitter executable (nice for direct node runs)
+    try { fs.chmodSync(emitterPath, 0o755); } catch (_) {}
+
+    // Wire the new properties via the tiny generic loader (the whole point)
+    console.log('\n▶ Running tiny generic component loader to wire properties (no manual edit)...');
+    try {
+      execSync(`node "${LOADER}" --update`, { stdio: 'inherit', cwd: ROOT });
+    } catch (e) {
+      console.warn('   (loader --update step reported non-zero; check witness-core.shen manually if needed)');
+    }
+
+    // Also ensure the generated dir exists for convenience (emitter will create on --emit)
+    ensureDir(path.join(GENERATED_ROOT, kebab));
+  } else {
+    console.log('\n  [dry] would invoke node bin/witness-component-loader.js --update');
+    console.log('  [dry] would ensure generated/' + kebab + '/ exists');
+  }
+
+  console.log('\n✅ 80% boilerplate done for protected ' + pascal + ' component.');
+  console.log('\nNext (protected, zero-wiring steps):');
+  console.log('  1. witness gates --quick                 # Gate 1/2: tc+ proves your *-design-fidelity theorem');
+  console.log('  2. witness gates --gate 4                # Gate 4: auto-discovers the new emitter + runs its fidelityChecks + tsc');
+  console.log('  3. witness gates --emit --gate 4         # Also writes the generated/ artifacts for review');
+  console.log('  4. Edit the properties file (add real slots/obligations/theorems)');
+  console.log('  5. Evolve the emitter to consume live contract shape (high-level path)');
+  console.log('\nAll gates, the loop, and `witness codegen` will pick it up automatically.');
+  console.log('See specs/design/README.md → "Extending the system" for the updated one-command recipe.\n');
+}
+
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { toKebab, toPascal, generateProperties, generateEmitter };

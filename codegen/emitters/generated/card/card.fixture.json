@@ -17,8 +17,8 @@
       "text": "Short desc for construction.",
       "font": "14px/1 sans-serif",
       "maxW": 268,
-      "strategy": "ellipsis",
-      "tokens": "default-tokens"
+      "tokens": "default-tokens",
+      "strategy": "ellipsis"
     },
     "actions": [
       {
@@ -35,9 +35,7 @@
         "maxW": 120,
         "tokens": "default-tokens"
       }
-    ],
-    "variant": "mobile",
-    "tokens": "default-tokens"
+    ]
   },
   "layout": {
     "width": 300,

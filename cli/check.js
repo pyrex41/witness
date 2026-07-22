@@ -41,6 +41,13 @@ Commands:
     --max-iter N
     --dry-run
     --gate <spec>
+  spec-init <Name>      One-command scaffolder for a new protected component (Next-3 turnkey DX).
+                        Creates skeleton *-properties.shen + *-emitter.js (with fidelityChecks),
+                        then auto-wires via the tiny generic component loader (no hand edits
+                        to witness-core.shen). "witness spec-init Button" gives you 80% of the
+                        boilerplate and green gates in <2 min.
+    --force             Overwrite existing
+    --dry-run           Preview only
   help                  Show this help
 
 Use 'witness gates' (or npm run gates) regularly while evolving the project
@@ -175,6 +182,21 @@ and specs/design/README.md (Extending the system).
     const loopArgs = args.slice(1).join(' ');
     try {
       execSync(`bash ${__dirname}/../bin/witness-loop.sh ${loopArgs}`, { stdio: 'inherit' });
+    } catch (e) {
+      process.exitCode = e.status || 1;
+    }
+    return;
+  }
+
+  // spec-init — one-command protected component scaffolder (the Next-3 DX deliverable)
+  // Creates the properties skeleton + basic self-consistent emitter stub (with fidelityChecks),
+  // then invokes the tiny generic loader so witness-core.shen is updated automatically.
+  if (command === 'spec-init') {
+    const { execSync } = require('child_process');
+    const initScript = path.join(__dirname, '..', 'bin', 'witness-spec-init.js');
+    const initArgs = args.slice(1).join(' ');
+    try {
+      execSync(`node ${initScript} ${initArgs}`, { stdio: 'inherit' });
     } catch (e) {
       process.exitCode = e.status || 1;
     }

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "es2020",
+    "jsx": "react",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "codegen/emitters/generated/**/*",
+    "codegen/ts/**/*",
+    "examples/ts/**/*"
+  ],
+  "exclude": [
+    "codegen/ts/demo/**",
+    "codegen/emitters/generated/**/*.stories.tsx",
+    "examples/ts/*-broken.ts",
+    "examples/ts/cross-file/**",
+    "node_modules"
+  ]
+}
