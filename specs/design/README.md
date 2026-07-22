@@ -1,30 +1,23 @@
-# Witness Design Specs & Gates (sb-style backpressure)
+# Witness Design Specs & Gates
 
 This directory contains **formal design specifications** for the Witness architecture itself, written in Shen using sequent-calculus datatypes and `: verified` premises.
 
 The goal is self-hosting backpressure: as we evolve Witness (especially while building the larger "Shen UI Specifications" system for components, codegen emitters, semantic CSS, etc.), the project's own proof machinery prevents design drift.
 
-## Philosophy (directly modeled on sb-shen-backpressure)
+## Philosophy
 
 - Specs in `specs/design/*.shen` are the single source of truth for key invariants.
 - The existing Witness proof system (`fits?`, `measure` via Pretext, `layout-proofs`, `trust` macro, two-phase check with the in-process ShenScript engine + `tc+`, Figma structural diff, etc.) acts as the oracle.
 - **Gates** (run via `npm run gates` or `bin/witness-design-gates.sh`) enforce fidelity:
   1. `tc+` on the design specs (Gate 1 — catches broken claims in the spec).
   2. Execution of property proofs / cross-checks against the implementation.
-  3. Emitter fidelity + regeneration/TCB audit (Gates 3 & 4 — the codegen bridge itself is protected).
-  4. Numeric range analysis over the emitted TypeScript (Gate 5 — freerange checks the arithmetic that Gate 4 only checks the shape of; see [Gate 5](#gate-5-numeric-range-analysis-freerange) below).
+  3. Emitter fidelity (Gate 3 — the codegen bridge itself is protected: regenerated and diffed against the committed output).
+  4. Numeric range analysis over the emitted TypeScript (Gate 4 — freerange checks the arithmetic that Gate 3 only checks the shape of).
 - Regeneration + host "build" (in this case the proof run + CI) provides the enforcement, exactly like `shengen` + compiler in the sb pattern.
 - The LLM / human proposes changes; the gates + proof system say "no" if fidelity is lost.
 
 ## Current Specs
 
-- `load-order-trust.shen` — TCB ordering contract (the sb-style "trust gate" for the proof system itself):
-  - `witness-load-sequence` datatype that models the exact required bootstrap order
-    (proofs → layout → errors → tea → tailwind → dom → ssr → responsive → props → figma → **trust last** → `(tc +)`).
-  - Three property proofs (typed `define`s) whose `tc+` acceptance is the theorem:
-    - `trust-macro-installed-before-any-user-proven-text`
-    - `current-witness-shen-7-26-satisfies-load-contract` (cites witness.shen:7-26 and trust.shen:25 line-by-line)
-    - `no-bypass-of-trust-via-data-list-construction` (defense-in-depth, analogous to sb "module-private" + factory pattern)
 
 - `witness-core.shen` — Core architecture contracts (loads only the SBCL-pure modules proofs+errors+tailwind so it passes the design gates' tc+):
   - `witness-proof-tier` datatype (clean three-tier model using only available oracles).
@@ -71,7 +64,7 @@ The gate runner re-uses the project's excellent two-phase checker (`bin/witness-
 
 Any violation becomes a hard failure (type error or overflow) before you can ship the change.
 
-### Gate Structure (sb-style, modeled on `.claude/commands/sb/loop.md` + TCB audit)
+### Gate structure
 
 - **Gate 1: tc+ Design Specs** — Runs `witness-check.sh` on every `*.shen` in `specs/design/`. Catches broken datatypes, unprovable `:verified` premises, or invariants that no longer hold in the live implementation.
 
@@ -94,11 +87,10 @@ Any violation becomes a hard failure (type error or overflow) before you can shi
   > `[list X]`, never `(list X)`.
 
 **CLI options** (portable, works on macOS bash 3.2 + Linux):
-- `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`audit`, `tcb`, `regen`), `--gate 4` (`emit`, `emitter`, `codegen`), `--gate 5` (`fr`, `freerange`, `numeric`, `range`)
-- `--quick` — Gates 1+2 only (skip TCB audit, emitter, and freerange; ideal for inner loop)
+- `--gate 1` (or `tc`, `design`), `--gate 2` (`proofs`), `--gate 3` (`emit`, `emitter`, `codegen`), `--gate 4` (`fr`, `freerange`, `numeric`, `range`)
+- `--quick` — Gates 1+2 only (skip emitter + freerange; ideal for inner loop)
 - `--full` — All five gates (default)
-- `--emit` — For Gate 4: also write the emitted artifacts to `codegen/emitters/generated/card/`
-- `--update-manifest` — After intentional core changes, prints the new `FIDELITY_MANIFEST` here-doc to paste into the script
+- `--emit` — For Gate 3: also write the emitted artifacts to `codegen/emitters/generated/card/`
 - Colored output (auto off in CI / non-tty), per-gate timing, actionable failure messages pointing to this README.
 
 Example individual gate:
@@ -106,46 +98,46 @@ Example individual gate:
 ./bin/witness-design-gates.sh --gate audit
 ```
 
-### Gate 4: Emitter Fidelity (Live)
+### Gate 3: Emitter fidelity
 
-Gate 4 is fully implemented and passing (`bin/witness-design-gates.sh` and `npm run gates` run it by default).
+Gate 3 is fully implemented and passing (`bin/witness-design-gates.sh` and `npm run gates` run it by default).
 
 - Invokes the real minimal `shen-witness` emitter (`codegen/emitters/card-emitter.js`).
 - Loads `specs/ui/card-spec.shen` (which exercises tokens + render-view + the high-level contracts via the design path).
 - Emits branded `Card.tsx` (Symbol brands + guarded factories + `VerifiedCard`) and semantic `card.css` (token vars, `.card__*` slots, modern nesting/owl + container queries).
 - Fidelity assertions verify the key markers from the Card contract; `--emit` writes the artifacts for inspection under `codegen/emitters/generated/card/`.
 
-The high-level `verified-card` / slot datatypes + `card-design-fidelity` theorems live in `specs/ui/properties/card-properties.shen` (loaded by `witness-core.shen` for Gate 1/2; card-spec.shen keeps low-level render compat).
+The high-level `verified-card` / slot datatypes + `card-design-fidelity` theorems live in `specs/ui/properties/card-properties.shen` (loaded under tc- by the prelude for Gate 1/2).
 
-A key step toward eliminating dual maintenance: `card-properties.shen` now exports `(card-contract-shape)`, which the emitter (`card-emitter.js`) calls at runtime. The high-level path in the emitter now consumes the live contract shape from Shen instead of maintaining a complete hand-written JS mirror of the datatype. Gate 4 enforces this.
+A key step toward eliminating dual maintenance: `card-properties.shen` now exports `(card-contract-shape)`, which the emitter (`card-emitter.js`) calls at runtime. The high-level path in the emitter now consumes the live contract shape from Shen instead of maintaining a complete hand-written JS mirror of the datatype. Gate 3 enforces this.
 
 This is the first concrete instance of the self-hosting codegen bridge: the same backpressure that makes "layout overflow a type error" for users now makes "emitter drift a gate failure" for the generator.
 
-Current state: Gate 4 is live and strong (auto-discovery, per-emitter `fidelityChecks[]`, real `tsc --noEmit`). Next steps: deeper emitter walker over live `verified-card` values, Yoga + Figma verification inside Gate 4, more output targets, and CI hardening. (See "To strengthen backpressure further" below.)
+Current state: Gate 3 is live and strong (auto-discovery, per-emitter `fidelityChecks[]`, real `tsc --noEmit`). Next steps: deeper emitter walker over live `verified-card` values, Yoga + Figma verification inside Gate 4, more output targets, and CI hardening. (See "To strengthen backpressure further" below.)
 
-### Gate 5: Numeric Range Analysis (freerange)
+### Gate 4: Numeric range analysis (freerange)
 
-Gate 4 answers "does the emitter faithfully project the contract shape?" — brands, tokens, factories, semantic CSS. It has nothing to say about whether the *arithmetic* inside a generated numeric helper can misbehave for some input the type checker never considered. That's a real gap: `card-properties.shen` proves obligations like "divide the available width by `actionCount`" hold *given a contract-shape value*, but the moment that math becomes plain TypeScript, Shen's proof no longer runs over it. Gate 5 closes that gap with [freerange](https://github.com/chenglou/freerange) (`@chenglou/freerange`), Cheng Lou's static numeric-range analyzer.
+Gate 3 answers "does the emitter faithfully project the contract shape?" — brands, tokens, factories, semantic CSS. It has nothing to say about whether the *arithmetic* inside a generated numeric helper can misbehave for some input the type checker never considered. That's a real gap: `card-properties.shen` proves obligations like "divide the available width by `actionCount`" hold *given a contract-shape value*, but the moment that math becomes plain TypeScript, Shen's proof no longer runs over it. Gate 4 closes that gap with [freerange](https://github.com/chenglou/freerange) (`@chenglou/freerange`), Cheng Lou's static numeric-range analyzer.
 
 **What it runs.** `./node_modules/.bin/fr`, invoked from the repo root so it picks up the root `tsconfig.json` (`"strict": true`, `include` covering `codegen/emitters/generated/**/*` and `codegen/ts/**/*`, `exclude` on `codegen/ts/demo/**`). freerange is a superset of `tsc`: it reports ordinary TypeScript errors first, then its own numeric findings. It tracks min/max/integer-ness/NaN/Infinity through every named top-level function, and reads a function's *leading* `console.assert(...)` calls as the caller's declared requirements — checked against every call site in the same file.
 
 **How to run it:**
 ```bash
-./bin/witness-design-gates.sh --gate 5
+./bin/witness-design-gates.sh --gate 4
 ```
-(aliases: `fr`, `freerange`, `numeric`, `range`). Gate 5 is part of `--full` (the default) and skipped by `--quick`, alongside Gates 3 and 4.
+(aliases: `fr`, `freerange`, `numeric`, `range`). Gate 4 is part of `--full` (the default) and skipped by `--quick`, alongside Gate 3.
 
-**What failure means.** A non-zero exit from `fr` means freerange found a call site where a declared numeric precondition — a `console.assert` the emitter projected straight from a Shen premise — is definitely or possibly false. Concretely: a caller passing `actionCount = 0` into `cardActionSlotWidth`, which the Shen obligation `actionCount >= 1` was supposed to rule out. A Gate 5 failure means the *emitted* arithmetic has drifted from what Shen proved — either the emitter regenerated stale, or a hand-written call site in `codegen/ts/**` violates the contract. Fix by regenerating (`./bin/witness-design-gates.sh --emit --gate 4`) or correcting the offending call; never by deleting the assert to make the gate pass.
+**What failure means.** A non-zero exit from `fr` means freerange found a call site where a declared numeric precondition — a `console.assert` the emitter projected straight from a Shen premise — is definitely or possibly false. Concretely: a caller passing `actionCount = 0` into `cardActionSlotWidth`, which the Shen obligation `actionCount >= 1` was supposed to rule out. A Gate 4 failure means the *emitted* arithmetic has drifted from what Shen proved — either the emitter regenerated stale, or a hand-written call site in `codegen/ts/**` violates the contract. Fix by regenerating (`./bin/witness-design-gates.sh --emit --gate 3`) or correcting the offending call; never by deleting the assert to make the gate pass.
 
-**Why the gate isn't vacuous.** Alongside the real generated module, `codegen/ts/demo/` carries a deliberately unsafe fixture (e.g. a call that divides by an `actionCount` of `0`) and a clean positive fixture exercising the same functions with in-range values. Both are excluded from the main tsconfig `include` (negative fixtures that fail-by-design can't sit in a `strict: true` build) and checked with targeted `fr <path>` invocations instead: the bad fixture is run *expecting* a finding, and Gate 5 itself fails if freerange stays silent on it. That's what proves the gate is actually checking something rather than passing because there was nothing to check.
+**Why the gate isn't vacuous.** Alongside the real generated module, `codegen/ts/demo/` carries a deliberately unsafe fixture (e.g. a call that divides by an `actionCount` of `0`) and a clean positive fixture exercising the same functions with in-range values. Both are excluded from the main tsconfig `include` (negative fixtures that fail-by-design can't sit in a `strict: true` build) and checked with targeted `fr <path>` invocations instead: the bad fixture is run *expecting* a finding, and Gate 4 itself fails if freerange stays silent on it. That's what proves the gate is actually checking something rather than passing because there was nothing to check.
 
-**The obligation → `console.assert` projection convention.** New component emitters that want Gate 5 coverage should follow the pattern established for Card layout math:
+**The obligation → `console.assert` projection convention.** New component emitters that want Gate 4 coverage should follow the pattern established for Card layout math:
 - Emit one self-contained TypeScript module of **named, top-level, synchronous** functions doing the component's numeric layout arithmetic — freerange's supported subset.
 - **Inline every constant the arithmetic touches** (`const SPACE_4 = 16;` projected from `token_values`, not imported) — freerange does not analyze across file boundaries (see limitation (a) below), so an imported constant is invisible to it.
 - For each Shen obligation discharged over that arithmetic, emit a **leading** `console.assert(...)` expressing it as a precondition — direct calls only (no aliasing), literal / object-path / `.length` comparands, complex conditions extracted to a variable first. Put the caller's requirements first; anything after the leading run of asserts must be independently provable by freerange or it errors.
 - Trail each assert with a comment naming the Shen theorem or obligation it came from, so drift between the spec and the generated precondition is legible on sight.
 - Give the module **in-file call sites** (a positive demo consumer, at minimum) — an emitted function with no call site in the same file is never actually checked.
-- Extend the emitter's `fidelityChecks[]` so that every token/obligation the layout module depends on is asserted to appear in the generated file — the same convention Gate 4 already uses for `Card.tsx`, now applied to the numeric module, so a Shen value changing without regeneration fails Gate 4, not just Gate 5.
+- Extend the emitter's `fidelityChecks[]` so that every token/obligation the layout module depends on is asserted to appear in the generated file — the same convention Gate 3 already uses for `Card.tsx`, now applied to the numeric module, so a Shen value changing without regeneration fails Gate 3, not just Gate 4.
 
 ```ts
 // GENERATED — obligation: card-variants-respect-minimum-content-width
@@ -159,8 +151,8 @@ export function cardContentWidth(variantWidth: number): number {
 ```
 
 **Two honest limitations, worth keeping in view every time this bridge comes up:**
-- **(a) freerange v0.0.2 does not enforce contracts across file imports.** The contracted function and its call sites must be in the same file — an imported function is simply not analyzed, and an imported constant only resolves if it's a numeric literal. This is why the projection convention above insists on self-contained modules and in-file call sites; without that, Gate 5 would be silently checking nothing. A fork adding cross-file propagation is being explored, but nothing in this repo should assume it exists yet.
-- **(b) freerange requires `strictNullChecks` and has no JSON output or programmatic API in v0.0.2.** The root `tsconfig.json` therefore has to run with `"strict": true` for `fr` to run at all. The audit bridge (`node cli/freerange-audit.js <path...> [--json] [--emit-shen <outfile>]`, feeding `specs/generated/numeric-bounds.shen` — the oracle for the `(bounded N)` sequent) has to scrape freerange's human-readable `--audit` text output rather than parse structured data, and it is deliberately non-fatal: unrecognized lines are collected, never fatal, and it always exits 0. A future freerange release changing its output format degrades the bridge to "no facts learned," not a broken build.
+- **(a) freerange v0.0.2 does not enforce contracts across file imports.** The contracted function and its call sites must be in the same file — an imported function is simply not analyzed, and an imported constant only resolves if it's a numeric literal. This is why the projection convention above insists on self-contained modules and in-file call sites; without that, Gate 4 would be silently checking nothing. A fork under `vendor/freerange` adds an opt-in `fr --cross-file` that closes this; Gate 4 still runs the published binary.
+- **(b) freerange requires `strictNullChecks`.** v0.0.2 refuses to run without it, so the root `tsconfig.json` runs with `"strict": true`.
 
 ### Adding More Backpressure
 
@@ -186,59 +178,15 @@ This creates a beautiful recursive system: the tool that gives users "layout ove
 The modern pattern uses the tighter `*-contract-shape` coupling (Shen single source of truth) + two tiny new tools:
 
 - **Tiny generic component loader** (`bin/witness-component-loader.js`): auto-discovers every `specs/ui/properties/*-properties.shen` and keeps the load list inside `specs/design/witness-core.shen` in a managed block. Gate 1/2 therefore cover new components with **zero manual wiring**.
-- **One-command scaffolder** (`witness spec-init <Name>` / `bin/witness-spec-init.js`): given a component name, emits a correct skeleton `*-properties.shen` (datatypes + verified-lift + design-fidelity theorem) + a basic but *self-consistent* `*-emitter.js` (exports `emit()` + `fidelityChecks[]` that Gate 4 will auto-discover and that pass on the emitted artifacts). It then calls the loader so everything is wired.
+- **Adding a protected component** (manual, two files): write `specs/ui/properties/<name>-properties.shen` (the verified-* datatypes with `if (fits? ...)` obligations, a `(<name>-contract-shape)` descriptor, and a nullary `<name>-design-fidelity` theorem), and `codegen/emitters/<name>-emitter.js` (exports `emit()` + `fidelityChecks[]`). Run `node bin/witness-component-loader.js --update` to wire the contract into the prelude. Gate 1/2 then cover its contracts and theorems, and Gate 3 auto-discovers the emitter — no runner changes.
 
-" `witness spec-init Button` " gives you ~80 % of the boilerplate and leaves the gates in a runnable state.
+The Card spike (`card-properties.shen` with its `(card-contract-shape)`, `card-emitter.js` with its `fidelityChecks`, and the generated tree) is the complete reference to copy from.
 
-### One-command turnkey flow (the recommended path)
-```bash
-witness spec-init MyComponent     # or "witness-spec-init MyComponent"
-# (creates properties + emitter, auto-updates witness-core loads via the tiny loader)
-
-witness gates --quick             # Gate 1/2: tc+ proves your new *-design-fidelity theorem
-witness gates --gate 4            # Gate 4: auto-discovers emitter + fidelityChecks + tsc on .tsx
-witness gates --emit --gate 4     # also materialises generated/ artifacts
-```
-
-Then iterate:
-- Flesh out the real verified-* datatypes, obligations, and the construction theorem in the properties file.
-- Evolve the emitter to drive from the live `(<name>-contract-shape)` (copy the high-level walk pattern from `card-emitter.js`).
-- (Optional) Add a thin `specs/ui/<name>-spec.shen` for 100% `witness render` compat.
-
-All subsequent `witness gates`, `witness loop --gate 4`, and `npm run gates` pick up the new component with **no further changes** to any runner or manifest.
-
-### Why the coupling + tooling (high-level overview)
-- The authoritative contract (verified datatypes, slots with `fits?` premises, variants, tokens, obligations, `instanceShape` for canonical construction) lives in Shen as a narrow, machine-readable descriptor exported by `(<name>-contract-shape)`.
-- The emitter calls it at runtime, parses once, and drives high-level `makeCanonical*` + walking from the live data. No complete hand-written JS mirror.
-- `fidelityChecks[]` live next to the emitter. Gate 4 auto-discovers every non-stub `*-emitter.js`, runs `emit()`, executes every check, and `tsc`s any `.tsx`.
-- The two new tools (loader + scaffolder) removed the last hand steps (writing two files + editing a load list).
-
-### Step-by-step (Card + the new tools as living reference)
-1. **One command (the new 80 % starting point)**: Run `witness spec-init MyComponent`. This creates:
-   - `specs/ui/properties/my-component-properties.shen` (skeleton with variants, verified-* datatype, obligation lift, and a `* -design-fidelity` theorem ready for tc+).
-   - `codegen/emitters/my-component-emitter.js` (basic `emit()` + `fidelityChecks[]` that are self-consistent — Gate 4 will be green immediately).
-   It then calls the tiny generic loader, so `witness-core.shen` is updated with the new load line. No hand-written files, no manifest edits.
-
-2. **Shen contracts (single source of truth — the interesting work)**: Open the generated properties file. Replace the skeleton datatypes with your real slots (each carrying `(fits? ...):verified` or other obligations), the `verified-<name>` product, factories, and a rich `<name>-design-fidelity` theorem that constructs a canonical instance and discharges every premise. Export `(<name>-contract-shape)`. The loader already wired it; Gate 1/2 now prove it on every run.
-
-3. **Thin low-level compat (optional, for full runtime parity)**: If you need `witness render` / existing tests to keep working exactly, add `specs/ui/<name>-spec.shen` with the legacy `render-view` path (high-level lives alongside).
-
-4. **Emitter evolution (the remaining 20 %)**: The generated stub is deliberately minimal but already protected. Evolve it (following `card-emitter.js`):
-   - Boot + load, call the live `(<name>-contract-shape)`.
-   - Implement the high-level `makeCanonicalVerified*` + walk helpers driven purely by the shape.
-   - Emit the full branded `*.tsx` + semantic CSS + stories + fixture.
-   - Extend `fidelityChecks[]` with your new obligations. (Gate 4 needs zero changes.)
-
-5. **Zero-wiring surface + verify**: Everything is already discovered. Run `witness gates --quick`, `--gate 4`, `--emit --gate 4`. The `witness loop`, `npm run gates`, and `witness codegen` all see it. Gate 4 will run your `fidelityChecks` and `tsc` your emitted TS. Polish docs / examples and you are done.
-
-The Card spike (`specs/ui/card-spec.shen` + `card-properties.shen` with its `card-contract-shape`, the full high-level `card-emitter.js` + its `fidelityChecks`, the generated tree, and the loader/scaffolder tooling) is the complete reference implementation. The combination of contract-shape + tiny loader + scaffolder + auto-discovering Gate 4 makes adding a protected component a fast, low-risk, fully backpressured operation. You cannot drift from the proven contracts.
-
-This is exactly the reduced-duplication, tighter-coupling reality the design now delivers.
 
 ## Relationship to the Big Vision
 
 
-The Card spike in `specs/ui/card-spec.shen` is the concrete bootstrap of that vision. It is already under the design gates via the load in `witness-core.shen`. The real emitter (`codegen/emitters/card-emitter.js`) + Gate 4 produce the guarded branded components + semantic CSS from the live contracts. The historical sketch lives in `card-emitter-stub.js` for provenance only.
+The Card spike in `specs/ui/card-spec.shen` is the concrete bootstrap of that vision. It is already under the design gates via the load in `witness-core.shen`. The real emitter (`codegen/emitters/card-emitter.js`) + Gate 3 produce the guarded branded components + semantic CSS from the live contracts. The historical sketch lives in `card-emitter-stub.js` for provenance only.
 
 This `specs/design/` system is the **meta** layer that will protect the faithful implementation of that feature. When we land PRs 4–6 (the `shen-witness` codegen and semantic CSS emitter), we will add design specs that prove "the emitted component produces a Yoga tree that satisfies the `verified-card` contract within Figma tolerance."
 

@@ -59,8 +59,7 @@ witness gates --gate 4
 # Other useful single-gate targets while working on the Card
 witness gates --gate 1          # tc+ on design specs (exercises Card datatypes + fidelity theorem)
 witness gates --gate 2          # property proofs (theorems are proven by successful tc+)
-witness gates --gate audit      # TCB hash drift check (core shen/ + cli/measure.js etc.)
-witness gates --gate 3          # alias for regeneration/TCB audit
+witness gates --gate 3          # emitter fidelity
 ```
 
 All of the above are also available directly:
@@ -68,7 +67,7 @@ All of the above are also available directly:
 ```bash
 ./bin/witness-design-gates.sh --quick
 ./bin/witness-design-gates.sh --gate 4
-./bin/witness-design-gates.sh --emit --gate 4   # (see regeneration section below)
+./bin/witness-design-gates.sh --emit --gate 3   # regenerate + check emitter fidelity
 ```
 
 See `witness gates --help` (or the gate runner source) for the full alias list (`tc`, `proofs`, `emitter`, `tcb`, ...).
@@ -123,7 +122,7 @@ witness loop specs/ui/card-spec.shen --dry-run --max-iter 1 --gate 4
 === Witness Gate-Protected Loop (Ralph-style) ===
 Self-hosting backpressure for the Shen UI spec system (Card, emitter, contracts).
 
-  Gate mode this run : 4   (quick=fast 1+2 | full=1-4 TCB+emitter | N=single gate)
+  Gate mode this run : 3   (quick=fast 1+2 | full=1-4 | N=single gate)
   Max agent iters    : 1
   Dry-run            : true
   Files under watch  :
@@ -260,7 +259,7 @@ This is exactly the "protected" feeling the earlier sb-shen-backpressure pattern
 While you run the commands above, you are exercising real formal artifacts:
 
 - `specs/ui/properties/card-properties.shen`
-  - Datatypes: `design-tokens`, `card-title-slot` (with `(fits? ...):verified`), `card-desc-slot` (overflow strategy), `card-action-slot`, `card-variant` (mobile/tablet/desktop with `variant-width`), `verified-card` (product type carrying the three obligations), `verified-lift`.
+  - Datatypes: `design-tokens`, `card-title-slot` (with `(fits? ...):verified`), `card-desc-slot` (overflow strategy), `card-action-slot`, `card-variant` (mobile/tablet/desktop with `variant-width`), `verified-card` (product type carrying the three obligations).
   - Theorems (whose `tc+` acceptance = proof):
     - `card-variants-respect-minimum-content-width`
     - `title-and-actions-never-overflow-under-gap-token`
@@ -455,7 +454,7 @@ witness gates --emit --gate 4
 # 4. Protected loop on just the Card spec (fast)
 witness loop specs/ui/card-spec.shen --max-iter 10
 
-# 5. Strict protected loop (full TCB + emitter) while touching design + core
+# 5. Strict protected loop (full gate suite) while touching design + core
 witness loop specs/ui/card-spec.shen specs/design/witness-core.shen --gate full --max-iter 5
 
 # 6. Dry-run emitter tuning (see banner + every gate run, zero risk)

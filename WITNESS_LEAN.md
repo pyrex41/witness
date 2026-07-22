@@ -44,21 +44,19 @@ Everything above the line exists and works. We write the glue.
 
 Witness now eats its own dogfood. The same Shen sequent-calculus + Yoga/Pretext proof engine that protects user layouts now protects the evolution of Witness itself via a set of formal **design specs** in `specs/design/*.shen`.
 
-- `load-order-trust.shen` encodes the exact TCB bootstrap order (proofs → ... → trust last → `(tc +)`) and three property theorems whose acceptance under `tc+` is the proof (citing `witness.shen:7-26` and `trust.shen:25` line-by-line).
 - `witness-core.shen` captures the 14-field `frame-props` contract, `to-textura` lowering fidelity for proven/handled cells, per-branch responsive obligations, and renderer overflow respect. It loads only the SBCL-pure modules so the specs themselves pass the gates' `tc+`.
 
 The gates runner (`bin/witness-design-gates.sh`, surfaced as `witness gates`, `npm run gates`, and `/witness:gates`) runs:
 1. Gate 1: `tc+` on all design specs (re-uses `bin/witness-check.sh` two-phase measure + ShenScript in-process by default, via `cli/shen-check.js`; `WITNESS_SHEN_ENGINE=native` falls back to `shen-cl` / `shen-sbcl`).
 2. Gate 2: property proofs (the `(define ... {sig})` theorems are proven by successful type-checking).
-3. Gate 3: regeneration/TCB audit (SHA-256 of core TCB files vs committed manifest; `--update-manifest` for intentional changes).
-4. Gate 4: emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, runs `fidelityChecks[]`, `tsc --noEmit`).
-5. Gate 5: numeric range analysis — freerange (`fr`, Cheng Lou's static numeric-range analyzer) checks the arithmetic Gate 4 doesn't reach. Two things worth knowing before relying on it: it doesn't enforce contracts across file imports (contracted function and call sites must share a file, so the emitter writes self-contained modules), and it requires `strictNullChecks` with no JSON/programmatic API, so the audit bridge (`cli/freerange-audit.js`) scrapes text output and is deliberately non-fatal.
+3. Gate 3: emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, diffs against the committed output, runs `fidelityChecks[]` against the live contract, `tsc`, and a semantic Yoga check).
+4. Gate 4: numeric range analysis — freerange (`fr`, Cheng Lou's static numeric-range analyzer) checks the arithmetic Gate 3 doesn't reach. It doesn't enforce contracts across file imports (contracted function and call sites must share a file, so the emitter writes self-contained modules), and it requires `strictNullChecks`.
 
-This is the direct transplant of the Polymarket sb-shen-backpressure pattern (four/five gates + regeneration + shengen-style emission) into the Witness tree. The Card spike (`specs/ui/card-spec.shen` + high-level `verified-card` contracts in `specs/ui/properties/card-properties.shen` + real `shen-witness` emitter in `codegen/emitters/card-emitter.js`) is the first user-facing artifact under this meta-protection. Gate 4 (emitter fidelity) is live: it runs the emitter on the Card spec and enforces that the emitted `Card.tsx` + semantic CSS faithfully reflect the contracts (brands, factories, token vars, semantic classes, owl/container patterns). Gate 5 extends the same idea one level down, from the shape of generated code to its arithmetic: the emitter also projects `card-properties.shen`'s numeric obligations into `console.assert` preconditions on a generated `card-layout.ts`, and freerange checks that no in-file call site can violate them — giving the previously-unwired numeric half of Tier 2 (`(bounded N)` for widths/counts) a real oracle.
+This is a self-hosting backpressure system: the Witness proof machinery validates its own contracts. The Card spike (`specs/ui/card-spec.shen` + high-level `verified-card` contracts in `specs/ui/properties/card-properties.shen` + real `shen-witness` emitter in `codegen/emitters/card-emitter.js`) is the first user-facing artifact under this meta-protection. Gate 4 (emitter fidelity) is live: it runs the emitter on the Card spec and enforces that the emitted `Card.tsx` + semantic CSS faithfully reflect the contracts (brands, factories, token vars, semantic classes, owl/container patterns). Gate 4 extends the same idea one level down, from the shape of generated code to its arithmetic: the emitter projects `card-properties.shen`'s numeric obligations into `console.assert` pre/postconditions on a generated `card-layout.ts`, and freerange checks that no in-file call site can violate them and that the postconditions hold.
 
 The result: no drift is possible when implementing "Shen specs to control UI". The proof system is recursive.
 
-See `specs/design/README.md`, `bin/witness-design-gates.sh`, and the main design doc for the full contracts. Gate 4 is the first working instance of the codegen bridge under the same backpressure; Gate 5 is the second.
+See `specs/design/README.md`, `bin/witness-design-gates.sh`, and the main design doc for the full contracts. Gate 3 protects the emitter's shape; Gate 4 protects its arithmetic.
 
 ## Core idea in 30 seconds
 
