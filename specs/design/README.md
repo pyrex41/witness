@@ -237,7 +237,6 @@ This is exactly the reduced-duplication, tighter-coupling reality the design now
 
 ## Relationship to the Big Vision
 
-The design document at `/tmp/grok-design-doc-56d5ddf2.md` (the "Shen UI Specifications for Witness") describes the user-facing feature (formal component contracts + codegen for guarded React/Astro components + semantic CSS).
 
 The Card spike in `specs/ui/card-spec.shen` is the concrete bootstrap of that vision. It is already under the design gates via the load in `witness-core.shen`. The real emitter (`codegen/emitters/card-emitter.js`) + Gate 4 produce the guarded branded components + semantic CSS from the live contracts. The historical sketch lives in `card-emitter-stub.js` for provenance only.
 

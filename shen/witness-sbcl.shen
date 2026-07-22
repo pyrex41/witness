@@ -16,7 +16,7 @@
 \\ before (tc +), since it defines a macro rather than typed functions.
 (load "shen/trust.shen")
 
-\\ \\ --- UI component properties (auto-discovered + maintained by tiny generic loader) ---
+\\ --- UI component properties (auto-discovered + maintained by tiny generic loader) ---
 \\ The tiny loader (bin/witness-component-loader.js) discovers every
 \\ specs/ui/properties/*-properties.shen and keeps exactly this block
 \\ in sync (no more hand-editing loads when adding a protected component).

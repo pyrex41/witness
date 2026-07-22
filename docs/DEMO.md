@@ -110,7 +110,7 @@ node-canvas            -- text measurement without a browser
 Witness (~700 lines)   -- connects them all
 ```
 
-Everything above the line exists and works. Witness is ~700 lines of Shen and ~150 lines of JavaScript glue.
+Everything above the line exists and works. Witness is ~1,660 lines of Shen and ~2,430 lines of JavaScript (runtime + CLI).
 
 ## Try It
 

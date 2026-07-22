@@ -66,12 +66,25 @@ function generateLoadStatements() {
 
 function getCurrentLoadsBlock() {
   const content = fs.readFileSync(WITNESS_CORE, 'utf8');
-  const startIdx = content.indexOf(START_MARKER);
+  const markerIdx = content.indexOf(START_MARKER);
   const endIdx = content.indexOf(END_MARKER);
-  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+  if (markerIdx === -1 || endIdx === -1 || endIdx < markerIdx) {
     return null;
   }
-  return { content, startIdx, endIdx, fullEnd: endIdx + END_MARKER.length };
+  // Start replacing at the BEGINNING OF THE LINE holding the marker, not at the
+  // marker text itself. The rewritten block supplies its own `\\ ` comment
+  // prefix, so anchoring mid-line left the old prefix in place and prepended a
+  // new one on every run — each invocation added another backslash, and the
+  // file drifted (caught by Gate 3 after running the loader twice). The same
+  // applies to the end marker's prefix.
+  const startIdx = content.lastIndexOf('\n', markerIdx) + 1;
+  const endMarkerLineStart = content.lastIndexOf('\n', endIdx) + 1;
+  return {
+    content,
+    startIdx,
+    endIdx: endMarkerLineStart,
+    fullEnd: endIdx + END_MARKER.length,
+  };
 }
 
 function updateWitnessCore(dryRun = false) {

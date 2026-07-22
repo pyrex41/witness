@@ -82,12 +82,17 @@ compiles, 31 does not).
 
 Think of layout proofs the way you think of tests — but mathematically exhaustive instead of example-based, and enforced at compile time instead of run time:
 
-| Tier | When | Cost | What |
-|------|------|------|------|
-| 1: Always | Every keystroke in dev | ~1ms | Static text fits static containers |
-| 2: Build | CI / pre-commit | ~50ms | Bounded string worst-case proofs |
-| 3: Comprehensive | Nightly / pre-release | ~500ms | Figma verification, i18n sweep |
-| 4: Runtime | Production (opt-in) | per-check | User-generated content, dynamic fonts |
+| Tier | When | What | Status |
+|------|------|------|--------|
+| 1: Always | Load / type-check time | Static text fits static containers | **works** — `if (<= (measure ...) MaxW)` side conditions + `assert-fits` |
+| 2: Build | CI / pre-commit | Bounds at the component boundary; numeric ranges in generated TS | **partly** — `prop-spec` works and Gate 5 checks numeric ranges; bounded-*string* worst-case is not wired |
+| 3: Comprehensive | Nightly / pre-release | Figma verification, i18n sweep | **WIP** — see the Figma status note below; no i18n sweep exists |
+| 4: Runtime | Production (opt-in) | User-generated content, dynamic fonts | **by construction** — `handled-text` truncation; no runtime prover ships |
+
+The per-tier costs previously quoted here (~1ms / ~50ms / ~500ms) were design
+targets, not measurements, so they have been removed rather than dressed up.
+What is measured: the full five-gate suite runs in ~12s, of which Gate 1's
+type-checking pass is ~2s.
 
 Proofs **erase after compilation** — just like TypeScript types after `tsc`. Zero proof machinery ships to production. What survives is plain JS calling Textura for layout and DOM for rendering.
 
@@ -308,8 +313,8 @@ npm run gates
 1. `tc+` on all design specs (using the real `fits?` / Pretext measurement + ShenScript in-process for `tc+`; `WITNESS_SHEN_ENGINE=native` uses `shen-cl` / `shen-sbcl` instead)
 2. Property theorems — discovered by shape in `specs/ui/properties/*.shen` and **executed**; false, erroring, or none-found all fail the gate
 3. Regeneration audit (SHA-256 fidelity check on the Trusted Computing Base — `witness.shen`, `trust.shen`, `layout.shen`, renderers, checker, etc.)
-4. Emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, runs their `fidelityChecks[]`, project-wide `tsc`, and a semantic check that measures each emitted slot unclamped against its proven bound)
-5. Numeric range analysis (`fr` / freerange over the emitted TypeScript — checks the arithmetic behind Gate 4's artifacts against `console.assert` preconditions projected from the same Shen obligations)
+4. Emitter fidelity (auto-discovers `codegen/emitters/*-emitter.js`, diffs what the emitter produces against what is committed on disk, runs their `fidelityChecks[]` against the live contract, project-wide `tsc`, and a semantic check that measures each emitted slot unclamped against its proven bound)
+5. Numeric range analysis (`fr` / freerange over the emitted TypeScript — checks the arithmetic behind Gate 4's artifacts against `console.assert` pre- AND postconditions projected from the same Shen obligations)
 
 This is the meta layer that will ensure the Card spike, `shen-witness` codegen emitter, semantic CSS, and guarded component factories stay faithful to their specs.
 
@@ -318,7 +323,7 @@ This is the meta layer that will ensure the Card spike, `shen-witness` codegen e
 Gate 4 proves the *shape* of what the emitter writes — tokens, factories, brands — against the live `(card-contract-shape)`. It has nothing to say about the arithmetic a generated numeric helper performs. That's Gate 5's job, and it's a genuinely different kind of composition:
 
 1. **Shen proves the design over known values.** `card-properties.shen` discharges obligations like "a card's content width is `variant-width - 2 * space-4`, and every variant width is ≥ the minimum" against the baked constants in `(card-contract-shape)`.
-2. **The emitter projects those obligations into `console.assert` preconditions** in a self-contained generated module (`codegen/emitters/generated/card/card-layout.ts`) — one function per proven obligation, one assert per premise, a trailing comment naming the Shen theorem it came from.
+2. **The emitter projects those obligations into `console.assert`s** in a self-contained generated module (`codegen/emitters/generated/card/card-layout.ts`), each tagged with the Shen theorem it came from. Leading asserts are *preconditions* (freerange enforces them at call sites); non-leading asserts are *postconditions* freerange must **prove**. The postconditions are what make token drift visible — with preconditions alone the emitter wrote both sides of the check, and setting `space-4` to 200 (every computed width negative) produced zero findings.
 3. **freerange statically checks the arithmetic** against those asserts at every call site — catching a caller who could violate a precondition that Shen proved was excluded *for the values it knows about*.
 
 ```ts
