@@ -18,7 +18,6 @@
   ],
   "exclude": [
     "codegen/ts/demo/**",
-    "codegen/emitters/generated/**/*.stories.tsx",
     "examples/ts/*-broken.ts",
     "examples/ts/cross-file/**",
     "node_modules"

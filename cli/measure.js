@@ -106,8 +106,16 @@ async function main() {
     width: measureText(text, font),
   }));
 
-  // Write .witness/measurements.shen
-  const outDir = path.join(process.cwd(), '.witness');
+  // Write .witness/measurements.shen — ALWAYS at the repo root.
+  //
+  // This used to be process.cwd()/.witness while every reader
+  // (cli/shen-check.js, shen/witness-sbcl.shen's prelude) resolves the cache
+  // relative to the repo root. Running the checker from a subdirectory wrote a
+  // fresh cache somewhere nobody reads and then type-checked against whatever
+  // stale cache happened to be at the root — with no error, and no way to tell
+  // from the output. For a file that is the oracle behind every fits?
+  // obligation, "which copy did we just prove against?" must not depend on cwd.
+  const outDir = path.join(__dirname, '..', '.witness');
   fs.mkdirSync(outDir, { recursive: true });
 
   const lines = measurements.map(m =>

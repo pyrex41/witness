@@ -23,14 +23,14 @@
     "actions": [
       {
         "ctor": "mk-card-action",
-        "label": "View Details",
+        "text": "View Details",
         "font": "14px/1 sans-serif",
         "maxW": 120,
         "tokens": "default-tokens"
       },
       {
         "ctor": "mk-card-action",
-        "label": "Save",
+        "text": "Save",
         "font": "14px/1 sans-serif",
         "maxW": 120,
         "tokens": "default-tokens"
