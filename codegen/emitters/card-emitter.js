@@ -400,6 +400,11 @@ function cardToTexturaTree(vc) {
 // The verifier itself. Called by Gate 4 (when not opted out).
 // Returns { pass, verifiedCard, geometry, failures, obligationsChecked }
 async function runSemanticCardVerification(customVc = null) {
+  // Read the live contract so the thresholds come from Shen, not from literals
+  // duplicated in this file.
+  const $ = await bootAndLoadCardSpec();
+  const contractShape = await getCardContractShape($);
+
   const vc = customVc || createCard(
     createCardTitle('Card Title'),
     createCardDesc('Short desc for construction.'),
@@ -418,36 +423,66 @@ async function runSemanticCardVerification(customVc = null) {
   const descNode = layout.children && layout.children[1];
   const actionsNode = layout.children && layout.children[2];
 
-  // Obligation 1 + 2: title/desc slots respect their maxW (from fits? + card-*-slot sequents)
-  const TOL = 4; // accommodates Pretext/Yoga buffer + font fallback in node-canvas
-  if (titleNode && titleNode.width > vc.title.maxW + TOL) {
-    failures.push(`title geometry ${Math.round(titleNode.width)} > maxW ${vc.title.maxW}`);
-  }
-  if (descNode && descNode.width > vc.desc.maxW + TOL) {
-    failures.push(`desc geometry ${Math.round(descNode.width)} > maxW ${vc.desc.maxW}`);
+  // OBLIGATION 1/2 — does the text actually FIT its bound?
+  //
+  // This must be measured UNCLAMPED. cardToTexturaTree sets maxWidth: slot.maxW
+  // on each node, and Yoga clamps a node's width to its maxWidth, so the old
+  // check — "is the laid-out width greater than the maxWidth we just imposed?"
+  // — was false by construction. A 500-character title passed it, as did every
+  // possible input. Obligation 4 was worse: `layout.width < 268 - 1` against a
+  // root whose width is hardcoded to 300, i.e. the constant false.
+  //
+  // The intrinsic width from lib/measure-core.js is the same number the Shen
+  // `if (fits? ...)` side condition evaluates, so this checks the emitted
+  // artifact against the identical criterion the contract was proven under.
+  const measureCore = require('../../lib/measure-core');
+  const intrinsic = (text, font) => measureCore.measureText(text, font);
+
+  const slotChecks = [
+    { label: 'title', text: vc.title.text, font: vc.title.font, maxW: vc.title.maxW },
+    { label: 'desc', text: vc.desc.text, font: vc.desc.font, maxW: vc.desc.maxW },
+    ...vc.actions.map((a, i) => ({
+      label: `action[${i}]`,
+      text: a.text,
+      font: a.font,
+      maxW: a.maxW,
+    })),
+  ];
+  for (const c of slotChecks) {
+    // desc declares an ellipsis strategy, so it is allowed to overflow visually
+    // — its contract is the truncation, not the fit.
+    if (c.label === 'desc') continue;
+    const w = intrinsic(c.text, c.font);
+    if (w > c.maxW) {
+      failures.push(
+        `${c.label}: text measures ${w.toFixed(2)}px but its proven bound is ${c.maxW}px`
+      );
+    }
   }
 
-  // Obligation 3: action pair + gap arithmetic (matches the two theorems
-  // title-and-actions-never-overflow-under-gap-token and
-  // action-pair-plus-gap-never-exceeds-tightest-variant)
-  if (actionsNode && actionsNode.children && actionsNode.children.length >= 2) {
-    const k = actionsNode.children;
-    const total = k[0].width + 8 + k[1].width;
-    const tightest = 268; // mobile variant-width from contracts
-    if (total > tightest + TOL) {
-      failures.push(`actions+gap ${Math.round(total)} exceeds tightest variant ${tightest}`);
-    }
-    // also per-action maxW (though actions are labels inside buttons)
-    for (let i = 0; i < Math.min(k.length, vc.actions.length); i++) {
-      if (k[i].width > vc.actions[i].maxW + TOL) {
-        failures.push(`action[${i}] geometry ${Math.round(k[i].width)} > maxW`);
-      }
+  // OBLIGATION 3 — action pair + gap against the tightest variant, with both
+  // the gap and the variant width read from the live contract rather than
+  // hardcoded (they were 8 and 268 inline, so a token change in Shen could not
+  // move them).
+  const gap = (contractShape.token_values && contractShape.token_values['space-2']) || 8;
+  const variantWidths = contractShape.variant_widths || {};
+  const tightest = Math.min(...Object.values(variantWidths).filter(n => typeof n === 'number'));
+  if (Number.isFinite(tightest) && vc.actions.length >= 2) {
+    const total = intrinsic(vc.actions[0].text, vc.actions[0].font) +
+                  gap +
+                  intrinsic(vc.actions[1].text, vc.actions[1].font);
+    if (total > tightest) {
+      failures.push(
+        `actions+gap measures ${total.toFixed(2)}px, exceeding the tightest variant ${tightest}px`
+      );
     }
   }
 
-  // Obligation 4: overall card satisfies variant min-width from layout-obligations
-  if (layout.width < 268 - 1) {
-    failures.push(`root layout width ${Math.round(layout.width)} below min variant width`);
+  // OBLIGATION 4 — the laid-out card is at least as wide as the tightest
+  // variant's content width. Compared against the contract value, not a
+  // constant chosen to be unreachable.
+  if (Number.isFinite(tightest) && layout.width < tightest) {
+    failures.push(`root layout width ${Math.round(layout.width)} is below the tightest variant ${tightest}`);
   }
 
   return {
