@@ -325,7 +325,17 @@ run_gate_3() {
           ? mod.outDirName
           : ef.replace(/-emitter\.js$/, "");
         const genDir = path.join(generatedDir, outDirName);
-        if (fs.existsSync(genDir)) {
+        // A missing output directory is a FAILURE, not a skip. This check used
+        // to be wrapped in a bare existsSync, so an emitter whose artifacts had
+        // never been written — or whose outDirName resolved somewhere nothing
+        // lives — silently diffed against nothing and reported green forever.
+        // The whole point of the check is that committed output matches the
+        // emitter, and "there is no committed output" is the loudest way to
+        // fail that.
+        if (!fs.existsSync(genDir)) {
+          allFailures.push(ef + ": no emitted output at " + genDir +
+            " — run with --emit and commit the result");
+        } else {
           for (const name of Object.keys(files)) {
             const onDisk = path.join(genDir, name);
             if (!fs.existsSync(onDisk)) {
