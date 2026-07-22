@@ -32,9 +32,23 @@
 // Usage: node cli/shen-check.js <file.shen> [file2.shen ...]
 
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { boot } = require('../boot');
 
 const PRELUDE = ['.witness/measurements.shen', 'shen/witness-sbcl.shen'];
+
+// An ill-typed definition: the signature promises a number, the body returns a
+// string. Under tc+ this MUST fail to load. Used as a liveness probe for the
+// type checker itself — see the call site.
+const PROBE_SRC = '(define shen-check-tc-probe { --> number } -> "not a number")\n';
+
+function writeProbe() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'witness-tc-probe-'));
+  const p = path.join(dir, 'probe.shen');
+  fs.writeFileSync(p, PROBE_SRC, 'utf8');
+  return p;
+}
 
 async function main() {
   const files = process.argv.slice(2);
@@ -44,23 +58,54 @@ async function main() {
   }
 
   const repoRoot = path.join(__dirname, '..');
-  const $ = await boot({ skipLoad: true });
-
-  for (const rel of PRELUDE) {
-    const abs = path.join(repoRoot, rel);
-    try {
-      await $.load(abs);
-    } catch (e) {
-      console.error(`  ✗ failed to load ${rel} (proof prelude): ${firstLine(e)}`);
-      console.error('    The prelude must load cleanly before any spec can be checked.');
-      process.exit(1);
-    }
-  }
+  const probePath = writeProbe();
 
   let failed = 0;
   for (const f of files) {
     const abs = path.isAbsolute(f) ? f : path.join(process.cwd(), f);
-    const label = path.relative(repoRoot, abs) || f;
+    // Relative label for in-tree files; absolute for anything outside the repo
+    // (a `../../../..` prefix is noise, not information).
+    const rel = path.relative(repoRoot, abs);
+    const label = !rel ? f : rel.startsWith('..') ? abs : rel;
+
+    // A missing file is not a type error, and must not be reported as one.
+    if (!fs.existsSync(abs)) {
+      failed++;
+      console.error(`  ✗ ${label}: file not found`);
+      continue;
+    }
+
+    // FRESH KERNEL PER FILE. `tc` is global session state, so a single `(tc -)`
+    // anywhere in a file used to silently disable type checking for every file
+    // after it — while this script still printed "type-checked under tc+".
+    // Per-file isolation also stops one file's definitions from satisfying the
+    // next file's references, and stops a half-loaded file from leaving partial
+    // definitions behind that make a later file pass.
+    const $ = await boot({ skipLoad: true });
+
+    for (const rel of PRELUDE) {
+      try {
+        await $.load(path.join(repoRoot, rel));
+      } catch (e) {
+        console.error(`  ✗ failed to load ${rel} (proof prelude): ${firstLine(e)}`);
+        console.error('    The prelude must load cleanly before any spec can be checked.');
+        process.exit(1);
+      }
+    }
+
+    // ACTIVE PROBE: prove the type checker is actually on, rather than assuming
+    // the prelude left it on. The probe is ill-typed by construction, so if it
+    // LOADS, tc+ is off and every result from this run would be a false green.
+    try {
+      await $.load(probePath);
+      console.error(`  ✗ ${label}: ABORTING — tc+ is not active (the ill-typed probe loaded clean).`);
+      console.error('    Every "pass" in this run would be meaningless. Check for a (tc -) in the');
+      console.error('    prelude or in a file loaded by it.');
+      process.exit(1);
+    } catch (_) {
+      // Expected: the probe must fail. tc+ is live.
+    }
+
     try {
       await $.load(abs);
       console.log(`  ✓ ${label}`);

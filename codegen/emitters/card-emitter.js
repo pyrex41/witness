@@ -22,6 +22,9 @@ const fs = require('fs');
 const path = require('path');
 const { boot } = require('../../boot');
 
+// Load errors from bootAndLoadCardSpec, surfaced when the descriptor is missing.
+const bootLoadErrors = [];
+
 async function bootAndLoadCardSpec() {
   const $ = await boot();
   await $.exec('(tc -)');
@@ -31,11 +34,15 @@ async function bootAndLoadCardSpec() {
   // pulled in all *-properties.shen — it no longer does (it is a stub), so the
   // load silently succeeded while defining nothing, and the shape was never
   // available. Load witness-core too, but only for its own content.
+  // Record load failures. Discarding them used to destroy the ACTUAL error (a
+  // parse error, an undefined helper) and leave only the downstream symptom
+  // "shape unavailable", which is what made the root cause so hard to find.
   const tryLoad = async rel => {
     try {
       await $.load(path.join(__dirname, '..', '..', rel));
       return true;
     } catch (e) {
+      bootLoadErrors.push(`${rel}: ${String((e && e.message) || e).split('\n')[0]}`);
       return false;
     }
   };
@@ -108,82 +115,25 @@ function shenToJs($, v) {
 }
 
 async function getCardContractShape($) {
-  let shape = null;
-  let why = '(card-contract-shape) returned nothing';
+  let raw;
   try {
-    const raw = await $.exec('(card-contract-shape)');
-    if (raw) shape = parseContractShape(shenToJs($, raw));
+    raw = await $.exec('(card-contract-shape)');
   } catch (e) {
-    why = String((e && e.message) || e).split('\n')[0];
-  }
-  // The whole emitter is driven by shape.instanceShape. If the Shen side fails to
-  // load (parse error in card-properties.shen, an undefined helper, a partial tc-
-  // load), an empty shape used to sail straight through and emit a *structurally
-  // degenerate* component — `export function createCard(\n,` with every slot
-  // missing — which is far worse than not emitting at all. Fall back to the
-  // canonical baseline instead, and say so loudly: the artifacts stay correct,
-  // but nobody gets to believe they came from the live contract when they didn't.
-  if (!shape || !Array.isArray(shape.instanceShape) || shape.instanceShape.length === 0) {
-    console.warn(
-      '  ⚠ card-emitter: live (card-contract-shape) unavailable — ' + why + '\n' +
-      '    Falling back to the canonical baseline shape. Emitted artifacts are correct\n' +
-      '    but are NOT driven by specs/ui/properties/card-properties.shen. Fix the Shen\n' +
-      '    side to restore the single-source guarantee Gate 4 is supposed to protect.'
+    throw new Error(
+      'Cannot read the live (card-contract-shape) descriptor: ' +
+      String((e && e.message) || e).split('\n')[0] +
+      (bootLoadErrors.length ? '\n  Underlying load failure(s):\n    ' + bootLoadErrors.join('\n    ') : '')
     );
-    return { ...(shape || {}), ...FALLBACK_CONTRACT_SHAPE, usedFallback: true, fallbackReason: why };
+  }
+  const shape = raw ? parseContractShape(shenToJs($, raw)) : null;
+  if (!shape || !Array.isArray(shape.instanceShape) || shape.instanceShape.length === 0) {
+    throw new Error(
+      '(card-contract-shape) produced no instanceShape — the emitter has nothing to project.' +
+      (bootLoadErrors.length ? '\n  Underlying load failure(s):\n    ' + bootLoadErrors.join('\n    ') : '')
+    );
   }
   return shape;
 }
-
-/**
- * The canonical baseline shape — the structure the emitter produced before it was
- * made shape-driven (see git history of makeCanonicalVerifiedCard). It exists only
- * as a floor for the degraded path above; when the live Shen shape loads, none of
- * this is consulted.
- */
-const FALLBACK_CONTRACT_SHAPE = {
-  name: 'verified-card',
-  default_variant: 'mobile',
-  instanceShape: [
-    ['entry', 'title', 'slot', 'title'],
-    ['entry', 'desc', 'slot', 'desc'],
-    ['entry', 'actions', 'slot', 'actions']
-  ],
-  slots: {
-    title: {
-      ctor: 'mk-card-title',
-      ctorField: 'text',
-      font: '18px/1.2 sans-serif',
-      maxW: 268,
-      defaultContent: 'Card Title',
-      requireNonEmpty: true
-    },
-    desc: {
-      ctor: 'mk-card-desc',
-      ctorField: 'text',
-      font: '14px/1 sans-serif',
-      maxW: 268,
-      strategy: 'ellipsis',
-      defaultContent: 'Short desc for construction.'
-    },
-    actions: {
-      ctor: 'mk-card-action',
-      ctorField: 'label',
-      font: '14px/1 sans-serif',
-      maxW: 120,
-      isList: true,
-      canonicalContents: ['View Details', 'Save'],
-      requireNonEmpty: true,
-      // The slot is plural ('actions') but each element is one CardAction —
-      // keeps the emitted names identical to the historical artifacts.
-      jsType: 'CardAction',
-      factory: 'createCardAction'
-    }
-  },
-  tokens: ['space-4', 'space-2', 'radius-lg', 'text-title', 'text-action'],
-  token_values: { 'space-4': 16, 'space-2': 8, 'radius-lg': 8, 'text-title': 18, 'text-action': 14 },
-  variant_widths: { mobile: 268, tablet: 400, desktop: 600 }
-};
 
 async function extractCardShape($, options = {}) {
   const { highLevel = true, verifiedCard } = options;

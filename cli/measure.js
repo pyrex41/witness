@@ -7,46 +7,17 @@
 const fs = require('fs');
 const path = require('path');
 
-// Polyfill OffscreenCanvas for Node.js
-const { createCanvas } = require('canvas');
-if (typeof globalThis.OffscreenCanvas === 'undefined') {
-  globalThis.OffscreenCanvas = class OffscreenCanvas {
-    constructor(w, h) { this._canvas = createCanvas(w, h); }
-    getContext(type) { return this._canvas.getContext(type); }
-  };
-}
+// Measurement is delegated to the single shared oracle in lib/measure-core.js.
+// This file previously had its own canvas polyfill, its own font-availability
+// check that WARNED and measured anyway, and its own `?? 0` fallback — while
+// boot.js threw on the same inputs. Two rulers, one cache, and the cache is what
+// every `:verified` premise is discharged against.
+const {
+  measureText,
+  isFontAvailable,
+  familyOf,
+} = require('../lib/measure-core');
 
-const { prepareWithSegments, layoutWithLines } = require('@chenglou/pretext');
-
-let systemFontFamilies = null;
-function loadSystemFonts() {
-  if (systemFontFamilies !== null) return;
-  try {
-    const { execSync } = require('child_process');
-    const output = execSync('fc-list : family', { encoding: 'utf8', timeout: 5000 });
-    systemFontFamilies = new Set(
-      output.split('\n').map(l => l.trim().toLowerCase()).filter(Boolean)
-        .flatMap(l => l.split(',').map(f => f.trim()))
-    );
-  } catch (_) {
-    systemFontFamilies = false;
-  }
-}
-
-function isFontAvailable(fontSpec) {
-  const generics = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'];
-  const family = fontSpec.replace(/^[\d.]+px\s*/, '').trim();
-  if (generics.includes(family.toLowerCase())) return true;
-  loadSystemFonts();
-  if (systemFontFamilies) return systemFontFamilies.has(family.toLowerCase());
-  return true; // Can't detect; skip warning
-}
-
-function measureText(text, font) {
-  const prepared = prepareWithSegments(String(text), String(font));
-  const result = layoutWithLines(prepared, 1e7, 20);
-  return result.lines[0]?.width ?? 0;
-}
 
 // Extract string literals from Shen source — matches (assert-fits "..." "..." N)
 // and (proven-text "..." "..." N). Also handles (mk-font "name" size) inline.
@@ -114,19 +85,26 @@ async function main() {
     return;
   }
 
-  // Check font availability and measure each pair
-  const warnedFonts = new Set();
-  for (const { font } of unique) {
-    if (!warnedFonts.has(font) && !isFontAvailable(font)) {
-      console.warn(`  WARNING: Font not available: ${font} — measurements may be inaccurate`);
-      warnedFonts.add(font);
-    }
+  // An unavailable font is FATAL here, not a warning. This cache is the oracle
+  // every layout obligation is discharged against; a width measured with a
+  // substitute font is not a fact about what renders, and writing it would let
+  // a proof succeed against a number nobody can reproduce.
+  const missing = [...new Set(unique.map(u => u.font))].filter(f => !isFontAvailable(f));
+  if (missing.length) {
+    console.error('ERROR: cannot measure — font(s) not available:');
+    for (const f of missing) console.error(`  - ${familyOf(f)}  (from ${JSON.stringify(f)})`);
+    console.error('');
+    console.error('Install the font, or use a generic family (sans-serif, serif, monospace).');
+    console.error('Refusing to write measurements taken with a substitute font.');
+    process.exit(1);
   }
 
-  const measurements = unique.map(({ text, font }) => {
-    const width = measureText(text, font);
-    return { text, font, width };
-  });
+  // measureText throws on a failed measurement rather than yielding 0.
+  const measurements = unique.map(({ text, font }) => ({
+    text,
+    font,
+    width: measureText(text, font),
+  }));
 
   // Write .witness/measurements.shen
   const outDir = path.join(process.cwd(), '.witness');

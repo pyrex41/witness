@@ -1,12 +1,8 @@
 // boot.js — ShenScript + Textura + Pretext bridge
-// Polyfill OffscreenCanvas for Node.js (Pretext needs it for text measurement)
-const { createCanvas, registerFont } = require('canvas');
-if (typeof globalThis.OffscreenCanvas === 'undefined') {
-  globalThis.OffscreenCanvas = class OffscreenCanvas {
-    constructor(w, h) { this._canvas = createCanvas(w, h); }
-    getContext(type) { return this._canvas.getContext(type); }
-  };
-}
+// The canvas polyfill Pretext needs is installed by lib/measure-core.js, which
+// is also the single measurement oracle shared with cli/measure.js.
+const measureCore = require('./lib/measure-core');
+const { registerFont } = require('canvas');
 
 // Pin a known font for measurement parity. Without this, node-canvas measures
 // text with whatever the host OS maps "monospace" to (Menlo on macOS, DejaVu
@@ -64,72 +60,22 @@ async function boot(options = {}) {
   // --- Font availability detection ---
   // Uses fontconfig (fc-list) when available for authoritative font detection.
   // Falls back to width-comparison heuristic in browser environments.
-  const fontCache = new Map();
-  let systemFontFamilies = null;
-
-  function loadSystemFonts() {
-    if (systemFontFamilies !== null) return;
-    try {
-      const { execSync } = require('child_process');
-      const output = execSync('fc-list : family', { encoding: 'utf8', timeout: 5000 });
-      systemFontFamilies = new Set(
-        output.split('\n')
-          .map(l => l.trim().toLowerCase())
-          .filter(Boolean)
-          .flatMap(l => l.split(',').map(f => f.trim()))
-      );
-    } catch (_) {
-      systemFontFamilies = false; // fontconfig not available
-    }
-  }
-
-  function isFontAvailable(fontSpec) {
-    // Generic CSS font families are always "available"
-    const generics = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'];
-    const family = fontSpec.replace(/^[\d.]+px\s*/, '').trim();
-    // Families we registered with node-canvas are guaranteed available even
-    // when fontconfig doesn't know them (e.g. the fontsource woff we loaded
-    // programmatically — fc-list only sees files under known font dirs).
-    if (family === PINNED_FONT_FAMILY) return true;
-    if (generics.includes(family.toLowerCase())) return true;
-    if (fontCache.has(family)) return fontCache.get(family);
-
-    loadSystemFonts();
-    let available;
-    if (systemFontFamilies) {
-      available = systemFontFamilies.has(family.toLowerCase());
-    } else {
-      // Fallback: heuristic width comparison against multiple generics
-      const probe = 'mmmmmmmmmmlli';
-      const wTest = layoutWithLines(prepareWithSegments(probe, fontSpec), 1e7, 20).lines[0]?.width ?? 0;
-      const wSans = layoutWithLines(prepareWithSegments(probe, fontSpec.replace(/[^0-9px ]+$/, 'sans-serif')), 1e7, 20).lines[0]?.width ?? 0;
-      const wSerif = layoutWithLines(prepareWithSegments(probe, fontSpec.replace(/[^0-9px ]+$/, 'serif')), 1e7, 20).lines[0]?.width ?? 0;
-      const wMono = layoutWithLines(prepareWithSegments(probe, fontSpec.replace(/[^0-9px ]+$/, 'monospace')), 1e7, 20).lines[0]?.width ?? 0;
-      // If width matches any generic exactly, font is likely missing
-      available = Math.abs(wTest - wSans) > 0.01 &&
-                  Math.abs(wTest - wSerif) > 0.01 &&
-                  Math.abs(wTest - wMono) > 0.01;
-    }
-    fontCache.set(family, available);
-    return available;
-  }
+  // Font availability + measurement now live in lib/measure-core.js. The local
+  // copy here included a heuristic that reported a MISSING font as available
+  // whenever its fallback metrics didn't exactly match a generic — the wrong
+  // default for something a proof depends on.
 
   await $.define('textura.font-available?', (font) =>
-    $.asShenBool(isFontAvailable(String(font))));
+    $.asShenBool(measureCore.isFontAvailable(String(font), { pinnedFamily: PINNED_FONT_FAMILY })));
 
   // --- Text measurement (Pretext direct) ---
   // Returns intrinsic width of text in given font.
   // Warns (but does not error) if font is unavailable — measurements use the fallback.
-  await $.define('textura.measure', (text, font) => {
-    const fontStr = String(font);
-    if (!isFontAvailable(fontStr)) {
-      const family = fontStr.replace(/^[\d.]+px\s*/, '').trim();
-      throw new Error(`Font not available: "${family}". Install it or use a system font (sans-serif, serif, monospace).`);
-    }
-    const prepared = prepareWithSegments(String(text), fontStr);
-    const result = layoutWithLines(prepared, 1e7, 20);
-    return result.lines[0]?.width ?? 0;
-  });
+  // Delegates to lib/measure-core.js so the FFI and the .witness measurement
+  // cache are produced by the SAME ruler with the same policy. They previously
+  // disagreed by 40% on identical input.
+  await $.define('textura.measure', (text, font) =>
+    measureCore.measureText(String(text), String(font), { pinnedFamily: PINNED_FONT_FAMILY }));
 
   // --- Layout engine (Textura: Yoga + Pretext) ---
   // Textura's ComputedLayout output only includes x/y/width/height/text/children/lineCount;
@@ -179,14 +125,20 @@ async function boot(options = {}) {
   function pinTextWidths(node) {
     if (!node) return;
     if (typeof node.text === 'string' && node.width == null) {
-      try {
-        const prepared = prepareWithSegments(node.text, node.font);
-        const result = layoutWithLines(prepared, 1e7, node.lineHeight || 20);
-        const intrinsic = result.lines[0]?.width ?? 0;
-        // Round up so sub-pixel measurement noise can't cause a spurious wrap.
-        node.width = Math.ceil(intrinsic);
-        node.whiteSpace = 'pre-wrap';
-      } catch (_) { /* measurement errored — let Textura handle it. */ }
+      // Uses the shared oracle: it strips the CSS line-height clause that a
+      // canvas silently rejects (which measured at the default 10px font), and
+      // throws rather than yielding 0.
+      //
+      // The failure is deliberately NOT swallowed. Falling through to Textura
+      // here reinstates the +15% buffered width path this whole function exists
+      // to avoid, turning a proven width back into an estimate without a word to
+      // anyone.
+      const intrinsic = measureCore.measureText(node.text, node.font, {
+        pinnedFamily: PINNED_FONT_FAMILY,
+      });
+      // Round up so sub-pixel measurement noise can't cause a spurious wrap.
+      node.width = Math.ceil(intrinsic);
+      node.whiteSpace = 'pre-wrap';
     }
     if (Array.isArray(node.children)) {
       for (const c of node.children) pinTextWidths(c);
@@ -239,17 +191,20 @@ async function boot(options = {}) {
   //   - `overflow` is the CSS overflow strategy tag.
   await $.define('textura-text', (text, font, lineHeight, width, clipWidth, overflow) => {
     const f = String(font);
-    const m = f.match(/^([\d.]+)(?:px)?\s+(.+)$/);
-    const fontSize = m ? parseFloat(m[1]) : null;
-    // lineHeight 0 = auto: scale with font-size for consistent descender room.
+    // parseFontSpec understands CSS shorthand ("18px/1.2 sans-serif"). The old
+    // regex did not: it failed to match, so fontSize became null and lineHeight
+    // silently fell back to 20 for every font the Card contract declares.
+    let parsedFont = null;
+    try { parsedFont = measureCore.parseFontSpec(f); } catch (_) { /* handled below */ }
+    // lineHeight 0 = auto: derive from the spec (its /line-height if given).
     const lh = lineHeight && lineHeight > 0
       ? lineHeight
-      : (fontSize ? Math.ceil(fontSize * 1.4) : 20);
+      : (parsedFont ? Math.ceil(parsedFont.lineHeight) : 20);
     const node = {
       text: String(text),
       font: f,
-      fontSize,
-      fontFamily: m ? m[2].trim() : f,
+      fontSize: parsedFont ? parsedFont.size : null,
+      fontFamily: parsedFont ? parsedFont.family : f,
       lineHeight: lh,
       clipWidth,
       overflow: String(overflow),

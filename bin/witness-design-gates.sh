@@ -116,11 +116,13 @@ shen/witness-sbcl.shen 7e5c5d9fc06a624955c2b26dfe55d1c022e024bf532d63e121462e233
 shen/ssr.shen 7249622e990120992b30d55b97fd51b367ef52cd8c254987a0cf91fd1c42ad4f
 shen/dom.shen 3d8c6cfe989f942e4851b33596296f0d0abf49e7052a71c532d2d5080a17387b
 bin/witness-check.sh 46a9c68c1f33396255e3f37ca58977d3b08a9039326fc1377b0f958db933eed8
-cli/measure.js 3863243d3569b8506ebbf00f93301e7f0e9fe4ff944baf51fc0ca8b63686b0fe
-cli/shen-check.js 7d4d4216fcc2de39068baec6546a491a1632a4839c6e797097e708ce8648dce5
+cli/measure.js 8547998ca449c4ceb14a154576efb0efdd188f4b1652a29954c4981cea31e4d5
+cli/shen-check.js a7ae36ec28e5caac731f8315b097fccf48f23c802eeedbae778723f1ce155977
 cli/freerange-audit.js 810a11d34c08148265364ca42f06f1760d3a0d061334892272b079818ade3a3b
 MANIFEST_EOF
 )
+# === END OF UPDATED BLOCK ===
+# After replacing, run the gates (full) to self-verify.
 # === END OF UPDATED BLOCK ===
 
 # Color setup (CI-safe: disabled when stdout is not a tty)
