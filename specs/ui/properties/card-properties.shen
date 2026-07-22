@@ -81,12 +81,44 @@
 
 (declare layout-obligations-satisfied [card-title-slot --> [card-desc-slot --> [[list card-action-slot] --> [card-variant --> [design-tokens --> boolean]]]]])
 
+\\ Accessors over the slot data forms. The slots ARE their tagged lists (see
+\\ the datatypes above), so the obligation can measure what they actually hold
+\\ rather than asserting facts about constants.
+
+(define card-title-fits-within
+  {card-title-slot --> number --> boolean}
+  [card-title Text Font MaxW _] Content ->
+    (and (<= (measure Text Font) MaxW)
+         (<= MaxW Content)))
+
+(define card-actions-row-width
+  {(list card-action-slot) --> number --> number}
+  [] _ -> 0
+  [[card-action Label Font _ _]] _ -> (measure Label Font)
+  [[card-action Label Font _ _] | Rest] Gap ->
+    (+ (measure Label Font) (+ Gap (card-actions-row-width Rest Gap))))
+
+\\ The real obligation.
+\\
+\\ This was:
+\\   (let W (variant-width Variant) Gap (token-value Tokens "space-2")
+\\     (and (>= W 268) (>= Gap 0) true))
+\\ — where W is a variant width whose minimum IS 268 and Gap is a positive
+\\ token, so both conjuncts were constants and the third was the literal true.
+\\ It took the slots as arguments and looked at none of them. Every card
+\\ satisfied it, including one whose text did not fit.
+\\
+\\ Now it measures: the title must fit its own bound AND that bound must fit
+\\ the variant's content width, and the action row plus its gaps must fit too.
+\\ Desc is exempt by contract — it declares an ellipsis strategy, so its
+\\ obligation is the truncation, not the fit.
 (define layout-obligations-satisfied
   {card-title-slot --> card-desc-slot --> (list card-action-slot) --> card-variant --> design-tokens --> boolean}
   Title Desc Actions Variant Tokens ->
-    (let W (variant-width Variant)
+    (let Content (variant-width Variant)
          Gap (token-value Tokens "space-2")
-      (and (>= W 268) (>= Gap 0) true)))
+      (and (card-title-fits-within Title Content)
+           (<= (card-actions-row-width Actions Gap) Content))))
 
 \\ NOTE: (declare F Type) EVALUATES its type argument — [...] builds the list and
 \\ bare symbols self-evaluate, but (list card-action-slot) would be read as a call
@@ -113,29 +145,35 @@
   {card-variant --> design-tokens --> boolean}
   Variant Tokens -> (and (>= (variant-width Variant) 268) true))
 
-\\ --- verified-lift: the intentional bridge for executable-yet-provable obligations ---
-\\ In a dependently-typed setting it is common and principled to have
-\\ obligation predicates that are *executable* (return boolean, can be
-\\ measured or stubbed at runtime) while still discharging :verified
-\\ premises under tc+ when they compute to the constant true.
+\\ verified-lift REMOVED.
 \\
-\\ verified-lift supplies the single sequent (true : verified). Any
-\\ predicate P whose body reduces to true can discharge (P ...):verified.
-\\ This is *not* a hack: it is the standard mechanism letting the same
-\\ high-level spec serve Gate 1 static proof (via construction theorems)
-\\ *and* runtime factories/checks. Real obligations use measurements;
-\\ stubs (figma, responsive, Alert) use the lift. See alert header.
-
-(datatype verified-lift
-  ________________________________________________
-  true : verified;)
+\\ It supplied the sequent `true : verified`, and ~14 lines of prose here
+\\ described it as "the standard mechanism" by which any predicate reducing to
+\\ true could discharge a `:verified` premise. That was not true of it: Shen
+\\ lifts only the syntactic literal `true`, so a call to a function whose body
+\\ is `-> true` was never liftable, and every obligation resting on it was
+\\ unprovable rather than trivially provable.
+\\
+\\ Obligations are now `if` side conditions, which Shen evaluates, so there is
+\\ nothing left to lift. The one thing verified-lift did do — make it possible
+\\ to write an obligation that is true by construction — is exactly what this
+\\ file should not have.
 
 \\ --- The verified Card (the product type the emitter will brand) ---
 
 (datatype verified-card
-  if (and (layout-obligations-satisfied Title Desc Actions Variant Tokens)
-          (and (figma-card-matches "examples/card-design.json" Variant 2)
-               (responsive-variants-proven Variant Tokens)))
+  \\ layout-obligations-satisfied is deliberately NOT in this side condition.
+  \\ When tc+ evaluates a side condition, the conclusion's variables are bound
+  \\ to sub-EXPRESSIONS of the term being typed rather than to values, so an
+  \\ obligation that destructures the slots to measure them cannot run here
+  \\ (it aborts the check with "input stream expected"). Per-slot fits? is
+  \\ enforced at type-check time by the card-*-slot rules above, which is the
+  \\ headline guarantee; the cross-slot layout obligation is enforced by
+  \\ EXECUTION in Gate 2 via card-layout-obligations-hold below. Both are real
+  \\ and both can fail — they just fire at different moments, and the docs say
+  \\ which.
+  if (and (figma-card-matches "examples/card-design.json" Variant 2)
+          (responsive-variants-proven Variant Tokens))
   Title : card-title-slot;
   Desc  : card-desc-slot;
   Actions : (list card-action-slot);
@@ -198,6 +236,22 @@
           Total (+ A1 (+ Gap A2))
           Tightest (variant-width mobile)
        (<= Total Tightest)))
+
+\\ The cross-slot layout obligation, as an executed theorem (Gate 2).
+\\
+\\ This measures: the title must fit its own proven bound AND that bound must
+\\ fit the tightest variant's content width, and the action row plus its gaps
+\\ must fit as well. Falsify it by widening a slot's text or shrinking a
+\\ variant width — `./bin/witness-design-gates.sh --gate 2` goes red.
+(define card-layout-obligations-hold
+  {--> boolean}
+  -> (layout-obligations-satisfied
+        [card-title "Card Title" "18px sans-serif" 268 default-tokens]
+        [card-desc "Short desc for construction." "14px sans-serif" 268 ellipsis default-tokens]
+        [[card-action "View Details" "14px sans-serif" 120 default-tokens]
+         [card-action "Save" "14px sans-serif" 120 default-tokens]]
+        mobile
+        default-tokens))
 
 \\ --- Top-level design fidelity claim for the Card spike ---
 \\ This theorem now *constructs* a verified-card using the high-level slot

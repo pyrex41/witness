@@ -3,7 +3,7 @@
 \\
 \\ This file demonstrates that the high-level contracts machinery
 \\ (variant datatypes + obligation predicates + :verified premises +
-\\ verified-lift + construction theorems) generalizes cleanly to a
+\\ construction theorems) generalizes cleanly to a
 \\ second component (Alert) with zero changes to the core renderer,
 \\ card-spec, or the Card emitter.
 \\
@@ -18,7 +18,7 @@
 \\ design-fidelity-theorem technique scales without modification.
 \\
 \\ - alert-variant (info/success/warning/error)
-\\ - trivial obligation (always true, lifted via verified-lift — intentional
+\\ - trivial obligation (always true — an explicit stub, see below
 \\   bridge documented in card-properties.shen)
 \\ - verified-alert + alert-design-fidelity (analogous construction)
 \\
@@ -37,11 +37,12 @@
   ___ warning : alert-variant;
   ___ error   : alert-variant;)
 
-\\ --- Obligation helper (returns true so verified-lift discharges the premise) ---
-\\ In a fuller impl this could inspect Variant for semantic rules, pull token
-\\ colours, ARIA etc. Here it returns true; the verified-alert sequent
-\\ requires (alert-obligation...):verified and the intentional lift + tc+
-\\ accepts the construction (see verified-lift docs in card-properties.shen).
+\\ --- Obligation helper ---
+\\ HONEST STATUS: this returns true unconditionally. The Alert is an
+\\ illustrative second component, and its obligation has no content yet — a
+\\ fuller version would inspect Variant for semantic rules and token colours.
+\\ It is a stub, labelled as one, and Gate 2 executes it as such. Do not read
+\\ alert-design-fidelity as evidence that anything about the Alert is proven.
 
 (define alert-obligation-satisfied
   Variant Tokens -> true)

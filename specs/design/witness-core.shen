@@ -51,8 +51,15 @@
 
 (define canonical-verified-card
   { --> verified-card }
-  -> [card (canonical-card-title)
-           (canonical-card-desc)
-           [(canonical-card-action-primary) (canonical-card-action-secondary)]
+  \\ The slot terms are written INLINE rather than as calls to the definitions
+  \\ above. When tc+ evaluates the verified-card side condition, the conclusion's
+  \\ variables are bound to the sub-EXPRESSIONS of the term being typed, so a
+  \\ call like (canonical-card-title) arrives at the obligation unevaluated and
+  \\ destructuring it fails. Inline terms bind to the literal lists the
+  \\ obligation expects. The definitions above remain the per-slot proofs.
+  -> [card [card-title "Card Title" "18px sans-serif" 268 default-tokens]
+           [card-desc "Short desc for construction." "14px sans-serif" 268 ellipsis default-tokens]
+           [[card-action "View Details" "14px sans-serif" 120 default-tokens]
+            [card-action "Save" "14px sans-serif" 120 default-tokens]]
            mobile
            default-tokens])

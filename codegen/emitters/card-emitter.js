@@ -876,6 +876,11 @@ const TABLET_W = ${tabletW};      // variant_widths["tablet"]
 const DESKTOP_W = ${desktopW};      // variant_widths["desktop"]
 const TITLE_MAX_W = ${titleMaxW};    // slots.title.maxW
 const ACTION_MAX_W = ${actionMaxW};    // slots.actions.maxW (per action)
+// Bounds that make the row arithmetic PROVABLE rather than merely asserted.
+// With only \`actionCount >= 1\`, enough gaps can exceed any row width, so
+// freerange (correctly) refused to prove the slot width stays positive.
+const MIN_ROW_W = ${mobileW - 2 * s4};   // tightest variant content width
+const MAX_ACTIONS = 4;                   // emitter's declared cap on actions per row
 
 // Content width available inside a card of a given variant width, after
 // the card's own left+right space-4 padding is subtracted.
@@ -884,7 +889,15 @@ const ACTION_MAX_W = ${actionMaxW};    // slots.actions.maxW (per action)
 export function cardContentWidth(variantWidth: number): number {
   console.assert(Number.isInteger(variantWidth));
   console.assert(variantWidth >= MOBILE_W); // card-variants-respect-minimum-content-width
-  return variantWidth - 2 * SPACE_4;
+  const content = variantWidth - 2 * SPACE_4;
+  // POSTCONDITION. freerange treats a non-leading console.assert as an
+  // obligation it must PROVE, not a caller requirement — so this is what makes
+  // token drift visible. Previously every assert here was a leading
+  // precondition, which meant the emitter wrote both sides of the check and
+  // they could not disagree: setting SPACE_4 to 200 made every computed width
+  // negative and freerange reported nothing at all.
+  console.assert(content > 0);
+  return content;
 }
 
 // Width available to a single action (button/label) when actionCount
@@ -895,9 +908,13 @@ export function cardContentWidth(variantWidth: number): number {
 // generalizes to any positive action count sharing a row).
 export function cardActionSlotWidth(available: number, actionCount: number): number {
   console.assert(Number.isFinite(available));
+  console.assert(available >= MIN_ROW_W); // the row is at least the tightest variant's content width
   console.assert(Number.isInteger(actionCount));
-  console.assert(actionCount >= 1); // action-pair-plus-gap-never-exceeds-tightest-variant (divisor obligation)
-  return (available - SPACE_2 * (actionCount - 1)) / actionCount;
+  console.assert(actionCount >= 1);
+  console.assert(actionCount <= MAX_ACTIONS); // action-pair-plus-gap-never-exceeds-tightest-variant (divisor obligation)
+  const slot = (available - SPACE_2 * (actionCount - 1)) / actionCount;
+  console.assert(slot > 0); // POSTCONDITION — see cardContentWidth
+  return slot;
 }
 
 // Total width consumed by a row of actionCount actions of actionWidth
@@ -907,9 +924,12 @@ export function cardActionSlotWidth(available: number, actionCount: number): num
 // title's max width at the tightest variant).
 export function cardActionsRowWidth(actionWidth: number, actionCount: number): number {
   console.assert(Number.isFinite(actionWidth));
+  console.assert(actionWidth > 0); // a zero-width action is not an action
   console.assert(Number.isInteger(actionCount));
   console.assert(actionCount >= 1); // title-and-actions-never-overflow-under-gap-token
-  return actionWidth * actionCount + SPACE_2 * (actionCount - 1);
+  const row = actionWidth * actionCount + SPACE_2 * (actionCount - 1);
+  console.assert(row > 0); // POSTCONDITION — see cardContentWidth
+  return row;
 }
 
 // Whether an action row of the given width fits alongside the title at
