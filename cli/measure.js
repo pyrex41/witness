@@ -16,7 +16,13 @@ const {
   measureText,
   isFontAvailable,
   familyOf,
+  loadProjectFonts,
 } = require('../lib/measure-core');
+
+// The project whose fonts and cache this run belongs to. Hoisted above main()
+// because the faces must be registered before the first measureText call, not
+// just before the cache is written.
+const PROJECT_ROOT = process.env.WITNESS_PROJECT_ROOT || path.join(__dirname, '..');
 
 
 // Extract string literals from Shen source — matches (assert-fits "..." "..." N)
@@ -57,6 +63,7 @@ function extractPairs(source) {
 }
 
 async function main() {
+  loadProjectFonts(PROJECT_ROOT);
   const files = process.argv.slice(2).filter(f => !f.startsWith('-'));
   if (!files.length) {
     console.error('Usage: witness measure <file.shen> [file2.shen ...]');
@@ -121,8 +128,7 @@ async function main() {
   // would put the measurements every downstream proof is discharged against
   // somewhere the next `npm install` destroys. Unset, this is the witness
   // package itself, exactly as before.
-  const projectRoot = process.env.WITNESS_PROJECT_ROOT || path.join(__dirname, '..');
-  const outDir = path.join(projectRoot, '.witness');
+  const outDir = path.join(PROJECT_ROOT, '.witness');
   fs.mkdirSync(outDir, { recursive: true });
 
   const lines = measurements.map(m =>

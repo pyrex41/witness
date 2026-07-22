@@ -59,6 +59,11 @@ async function boot(options = {}) {
   // behaviour is unchanged when projectRoot is unset.
   const projectRoot = options.projectRoot || process.env.WITNESS_PROJECT_ROOT || null;
   const searchRoots = projectRoot ? [projectRoot, __dirname] : [__dirname];
+
+  // Register the project's real faces before anything measures, so proofs are
+  // discharged against the glyphs that actually render rather than a generic
+  // substitute. No manifest = no-op.
+  measureCore.loadProjectFonts(projectRoot);
   const resolveShenPath = p => {
     if (path.isAbsolute(p)) return p;
     for (const root of searchRoots) {
