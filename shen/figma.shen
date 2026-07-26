@@ -28,10 +28,7 @@
                       (do (close Stream) Acc)
                       (read-all-bytes Stream (cn Acc (n->string Byte))))))
 
-\\ --- Absolute value ---
-
-(define abs
-  X -> (if (< X 0) (- 0 X) X))
+\\ `abs` comes from the kernel's standard library (Shen 41+).
 
 \\ --- Figma JSON → named position list ---
 \\ Figma nodes have absoluteBoundingBox with x, y, width, height.
@@ -82,11 +79,8 @@
          ChildPositions (mapcat (/. C (layout->positions C)) ChildList)
       [Pos | ChildPositions]))
 
-\\ --- filter: keep elements matching predicate ---
-
-(define filter
-  _ [] -> []
-  F [X | Xs] -> (if (F X) [X | (filter F Xs)] (filter F Xs)))
+\\ `filter` comes from the kernel's standard library (Shen 41+),
+\\ same signature: (filter F List) keeps elements where F holds.
 
 \\ --- mapcat: map then concatenate ---
 
@@ -227,9 +221,7 @@
 
 \\ --- Type declarations for public API ---
 
-(declare filter [[A --> boolean] --> [[list A] --> [list A]]])
 (declare read-file-string [string --> string])
-(declare abs [number --> number])
 (declare figma-json->positions [A --> [list [list A]]])
 (declare extract-figma-nodes [A --> [list A]])
 (declare figma-node-position [A --> [list A]])

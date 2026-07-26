@@ -8,7 +8,7 @@
 #
 # Phase 2 engine selection, in order:
 #   1. ShenScript (cli/shen-check.js)  — DEFAULT. Runs the Shen kernel in-process
-#      via vendor/shen-script + boot.js. Same (tc +) semantics, ~1s for the design
+#      via the shen-script dependency + boot.js. Same (tc +) semantics, ~1s for the design
 #      specs, and a real exception on failure instead of a scraped REPL prompt.
 #   2. A native kernel (shen-cl / shen-sbcl) — legacy path, kept because it is a
 #      genuinely independent implementation; useful as a cross-check.

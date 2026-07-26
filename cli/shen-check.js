@@ -13,7 +13,7 @@
 //   - deciding "did it type-check?" by grepping for a `(N+)` prompt in scraped
 //     terminal output is guesswork, and slow (minutes).
 //
-// ShenScript is already a dependency (vendor/shen-script, driven by boot.js) and
+// ShenScript is already a dependency (the shen-script package, driven by boot.js) and
 // runs the same Shen kernel in-process, so it type-checks the same files with the
 // same `(tc +)` semantics — in seconds, with a real exception instead of a prompt
 // to inspect. `boot({skipLoad: true})` gives the kernel plus witness's JS FFI but

@@ -58,7 +58,7 @@ async function main() {
 
   // 2. js.get is the canonical Phase 4 bad case — must fail at load.
   const jsget = await loadShen($, `
-(define render
+(define render-view
   Props -> [text-node (proven-text (js.get Props "title") (mk-font "sans-serif" 14) 160)])
 `);
   check('proven-text on (js.get ...) rejected', !jsget.ok,
@@ -81,7 +81,7 @@ async function main() {
   // 4. let-bound variable also rejected — even if bound to a literal,
   // the macro sees a symbol, not a literal.
   const letbound = await loadShen($, `
-(define render
+(define render-view
   _ -> (let L "hello"
          [text-node (proven-text L (mk-font "sans-serif" 14) 96)]))
 `);
@@ -91,7 +91,7 @@ async function main() {
   // 5. handled-text remains the escape hatch for dynamic values — no
   // proof, CSS truncates on overflow.
   const handled = await loadShen($, `
-(define render
+(define render-view
   Props -> [text-node [handled-text (js.get Props "title") (mk-font "sans-serif" 12) 200 ellipsis]])
 `);
   check('handled-text on dynamic values still compiles', handled.ok, handled.error || '');
@@ -113,7 +113,7 @@ async function main() {
   // with a render that can't match any to-textura rule. We keep this
   // case here to document the shape, not to bless it.
   const dataform = await loadShen($, `
-(define render
+(define render-view
   Props -> [text-node [proven-text (js.get Props "title") (mk-font "sans-serif" 14) 160]])
 `);
   check('data-list form loads (but is dead code — no pattern matches it)',

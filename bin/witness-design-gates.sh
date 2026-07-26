@@ -28,7 +28,7 @@
 set -euo pipefail
 
 # SCRIPT_DIR is the witness PACKAGE — where the proof machinery (cli/, boot.js,
-# vendor/shen-script) lives. It is derived from this script's own location, so it
+# the shen-script dependency) lives. It is derived from this script's own location, so it
 # is correct whether the script is run from a checkout or from node_modules.
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 

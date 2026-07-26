@@ -38,6 +38,7 @@
     "astring": "^1.4.3",
     "awaitify-stream": "^1.0.2",
     "canvas": "^3.2.2",
+    "shen-script": "github:pyrex41/ShenScript",
     "textura": "^1.1.1"
   },
   "devDependencies": {

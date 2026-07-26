@@ -5,7 +5,6 @@ globalThis.OffscreenCanvas = class OffscreenCanvas {
   getContext(type) { return this._canvas.getContext(type); }
 };
 
-const Shen = require('../vendor/shen-script/lib/shen.js');
 const { init, computeLayout } = require('textura');
 
 async function main() {
@@ -13,7 +12,8 @@ async function main() {
 
   // Test 1: ShenScript basic evaluation
   console.log('1. Testing ShenScript...');
-  const $ = await new Shen();
+  const { createShen } = await import('shen-script');
+  const $ = await createShen();
   const result = await $.exec('(+ 1 1)');
   console.assert(result === 2, `Expected 2, got ${result}`);
   console.log(`   (+ 1 1) = ${result} ✓`);

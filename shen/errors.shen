@@ -8,15 +8,8 @@
 \\   [no-edit]                    — manual fix needed
 \\   [widen OldWidth NewWidth]    — change container width
 
-\\ --- Ceiling helper (pure Shen — works on any Shen implementation) ---
-\\ Only used for positive pixel widths in error messages.
-
-(define ceiling
-  X -> (ceiling-walk X 0))
-
-(define ceiling-walk
-  X N -> N where (>= N X)
-  X N -> (ceiling-walk X (+ N 1)))
+\\ `ceiling` comes from the kernel's standard library (Shen 41+); the local
+\\ walk-up definition it replaced collided with the now-protected system name.
 
 \\ --- Construct a layout error report ---
 
@@ -82,7 +75,6 @@
 
 \\ --- Type declarations ---
 
-(declare ceiling [number --> number])
 (declare make-layout-error [string --> [string --> [number --> [number --> [list A]]]]])
 (declare error-code [[list A] --> string])
 (declare error-message [[list A] --> string])

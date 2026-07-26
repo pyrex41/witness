@@ -26,22 +26,8 @@ ensurePinnedFont();
 
 const fs = require('fs');
 const path = require('path');
-const Shen = require('./vendor/shen-script/lib/shen.js');
 const { init, computeLayout } = require('textura');
 const { prepareWithSegments, layoutWithLines } = require('@chenglou/pretext');
-
-// File I/O streams for ShenScript's `load` function
-class InStream {
-  constructor(path) { this._buf = fs.readFileSync(path); this._pos = 0; }
-  read() { return this._pos < this._buf.length ? this._buf[this._pos++] : -1; }
-  close() { this._buf = null; }
-}
-
-class OutStream {
-  constructor(path) { this._fd = fs.openSync(path, 'w'); }
-  write(byte) { fs.writeSync(this._fd, Buffer.from([byte])); }
-  close() { fs.closeSync(this._fd); }
-}
 
 async function boot(options = {}) {
   // Resolve relative shen paths against the package dir so that both the
@@ -74,11 +60,18 @@ async function boot(options = {}) {
     // reported against the same location it always was.
     return path.join(__dirname, p);
   };
-  const $ = await new Shen({
-    openRead: p => new InStream(resolveShenPath(p)),
-    openWrite: p => new OutStream(resolveShenPath(p)),
-    InStream,
-    OutStream,
+  // shen-script (pyrex41/ShenScript) is ESM; this module is CJS, so pull it in
+  // with a dynamic import. Its FileInStream/FileOutStream replace the local
+  // stream classes witness used to carry — same sync whole-file semantics.
+  // stdStreamOptions wires *stinput*/*stoutput*/*sterror* to process stdio
+  // (the kernel's `pr` needs a real *stoutput*); only the file open functions
+  // are overridden, to route relative loads through resolveShenPath.
+  const { createShen } = await import('shen-script');
+  const { FileInStream, FileOutStream, stdStreamOptions } = await import('shen-script/streams');
+  const $ = await createShen({
+    ...stdStreamOptions(),
+    openRead: p => new FileInStream(resolveShenPath(p)),
+    openWrite: p => new FileOutStream(resolveShenPath(p)),
   });
   await init();
 
