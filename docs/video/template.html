@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Witness tutorial frame</title>
+<style>
+  @font-face { font-family: "JBM"; src: url(data:font/woff2;base64,__MONO400__) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "JBM"; src: url(data:font/woff2;base64,__MONO700__) format("woff2"); font-weight: 700; }
+  :root {
+    --bg: #0b0f17; --panel: #121826; --line: #232c3d; --fg: #e6e9ef; --dim: #9aa4b5;
+    --accent: #7aa2f7; --ok: #7bd88f; --bad: #ff6b6b; --warn: #f5c56b; --str: #e5b76b;
+    --sans: "Inter", "Helvetica Neue", "Liberation Sans", "DejaVu Sans", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+  body { background: radial-gradient(1200px 600px at 80% -10%, #16213a 0%, var(--bg) 60%); color: var(--fg); font-family: var(--sans); }
+  .frame { position: absolute; inset: 0; padding: 34px 56px 0; display: flex; flex-direction: column; }
+  .kicker { font: 700 13px/1 "JBM", monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  h1 { margin: 10px 0 20px; font-size: 38px; line-height: 1.15; font-weight: 700; letter-spacing: -.01em; }
+  .stage { flex: 1; min-height: 0; margin-bottom: 104px; display: flex; flex-direction: column; }
+  code { font-family: "JBM", monospace; font-size: .9em; background: #1b2336; padding: 1px 6px; border-radius: 5px; }
+
+  /* terminal */
+  .term { flex: 1; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .term .bar, .browser .bar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+  .bar span { width: 12px; height: 12px; border-radius: 50%; background: #3a4458; }
+  .bar span:nth-child(1) { background: #ff5f57; } .bar span:nth-child(2) { background: #febc2e; } .bar span:nth-child(3) { background: #28c840; }
+  .term .body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px 20px 18px; font: 16px/1.5 "JBM", monospace; }
+  .ln { white-space: pre-wrap; word-break: break-all; color: var(--dim); }
+  .ln.cmd { color: var(--fg); font-weight: 700; margin-top: 8px; }
+  .ln.cmd:first-child { margin-top: 0; }
+  .ln.cmd::before { content: "$ "; color: var(--ok); }
+  .ln.ok { color: var(--ok); } .ln.bad { color: var(--bad); } .ln.warn { color: var(--warn); }
+  .cursor { display: inline-block; width: .6em; height: 1.1em; background: var(--fg); vertical-align: text-bottom; margin-left: 1px; }
+
+  /* slides */
+  .slide { flex: 1; min-height: 0; font-size: 22px; }
+  [data-at] { transition: none; }
+  [data-at].hidden { visibility: hidden; }
+  .hero-code { font: 26px/1.4 "JBM", monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px 30px; margin: 10px 0 34px; }
+  .hero-code .k { color: var(--accent); } .hero-code .s { color: var(--str); }
+  .bullets { margin: 0; padding-left: 28px; line-height: 1.9; }
+  .bullets.big { font-size: 26px; line-height: 2.1; margin-top: 10px; }
+  .cols { display: flex; align-items: stretch; gap: 22px; height: 100%; }
+  .col { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 26px; font-size: 19px; }
+  .col h3 { margin: 0 0 6px; font-size: 22px; color: var(--accent); }
+  .col .where { margin: 0 0 12px; font-weight: 700; }
+  .col ul { margin: 0; padding-left: 22px; line-height: 1.75; }
+  .arrow { align-self: center; font: 700 15px "JBM", monospace; color: var(--dim); white-space: nowrap; }
+  .t { border-collapse: collapse; font-size: 22px; margin-top: 6px; }
+  .t th, .t td { text-align: left; padding: 12px 26px 12px 0; border-bottom: 1px solid var(--line); }
+  .t th { color: var(--accent); font-size: 17px; text-transform: uppercase; letter-spacing: .08em; }
+  .t .bad { color: var(--bad); font-weight: 700; }
+  .note { margin-top: 26px; font-size: 20px; color: var(--dim); max-width: 1000px; }
+  .repo { margin-top: 36px; font: 700 26px "JBM", monospace; color: var(--accent); }
+  .browser { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); height: 300px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .browser .bar { background: #eceef2; border-color: #d7dbe3; }
+  .browser .url { margin-left: 12px; flex: 1; background: #fff; border-radius: 6px; color: #555; font: 13px "JBM", monospace; padding: 4px 10px; }
+  .browser .view { flex: 1; position: relative; overflow: hidden; }
+  .browser iframe { position: absolute; left: 0; top: 0; border: 0; width: 625px; height: 162px; background: #fff; transform: scale(1.6); transform-origin: 0 0; }
+
+  /* caption */
+  .caption { position: absolute; left: 56px; right: 56px; bottom: 24px; min-height: 68px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px 26px; background: rgba(10, 14, 22, .82); border: 1px solid var(--line); border-radius: 12px; font-size: 21px; line-height: 1.4; color: #f3f5f9; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="kicker" id="kicker"></div>
+  <h1 id="title"></h1>
+  <div class="stage" id="stage"></div>
+</div>
+<div class="caption" id="caption"></div>
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function classify(line) {
+    if (/✗|\berror\b|exit code: [1-9]/.test(line)) return 'bad';
+    if (/✓|0 failed|passed|up to date|added \d+/i.test(line) && !/[1-9]\d* failed/.test(line)) return 'ok';
+    if (/Suggestions|^\s+- |\[W\d+\]|Applied fix|^[<>]/.test(line)) return 'warn';
+    return '';
+  }
+  window.setScene = ({ kicker, title, slide, terminal }) => {
+    $('kicker').textContent = kicker || '';
+    $('title').textContent = title || '';
+    $('stage').innerHTML = terminal
+      ? '<div class="term"><div class="bar"><span></span><span></span><span></span></div><div class="body" id="term"></div></div>'
+      : `<div class="slide">${slide || ''}</div>`;
+  };
+  window.setState = ({ term, cap, step }) => {
+    const t = $('term');
+    if (t) t.innerHTML = term.map(l => l.cmd !== undefined
+      ? `<div class="ln cmd">${esc(l.cmd)}${l.cursor ? '<span class="cursor"></span>' : ''}</div>`
+      : `<div class="ln ${classify(l.out)}">${esc(l.out) || '&nbsp;'}</div>`).join('');
+    document.querySelectorAll('[data-at]').forEach(el => el.classList.toggle('hidden', Number(el.dataset.at) > step));
+    $('caption').textContent = cap;
+  };
+</script>
+</body>
+</html>

@@ -1,5 +1,11 @@
 # Witness: Layout Overflow is a Compile-Time Error
 
+> For a step-by-step version with every command and a note on where each piece
+> runs, see [`TUTORIAL.md`](TUTORIAL.md) or the
+> [narrated video](video/witness-tutorial.mp4). The pixel counts below were
+> measured on macOS. On Linux, `sans-serif` resolves to DejaVu Sans, so the
+> numbers differ ([why](TUTORIAL.md#fonts-the-one-environment-detail-that-changes-numbers)).
+
 Witness is a Shen extension that makes layout correctness provable at compile time. Text that overflows its container? That's not a bug you find in QA. It's a type error the compiler rejects before your code ever runs.
 
 ## The Problem
@@ -67,10 +73,15 @@ Change the title and the compiler catches it instantly. Not at runtime. Not in a
 ```
 $ witness check --figma examples/card-design.json examples/card.shen
 Verifying examples/card.shen against Figma spec examples/card-design.json (tolerance: 2px, expr: (render-view))...
-  ✓ All nodes within tolerance
+  ✗ Figma verification failed: structural drift detected
+    - unnamed node #1 (matched by position): height 124 in Figma, 130 in code
+    - unnamed node #2 (matched by position): width 268 in Figma, 87 in code; height 20 in Figma, 26 in code
+    ...
 ```
 
 Export your Figma design as JSON. Witness computes the layout from your code and diffs the two position trees. If your code drifts from the design by more than the tolerance, you know.
+
+At the moment the bundled fixture and the card disagree, so this command reports drift and names each field that doesn't match. For example, the fixture's title spans the full 268px width, while the code's title shrinks to fit its text. See [TUTORIAL.md step 7](TUTORIAL.md#step-7-wip-figma-structural-diff).
 
 > **WIP:** the parser consumes a narrow subset of Figma's schema (`name` + `absoluteBoundingBox` + `children`) and is tested only against hand-crafted fixtures. Not yet validated against a real Figma REST API export. See the [Figma status note in the README](../README.md#figma-status).
 
