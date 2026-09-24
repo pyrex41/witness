@@ -3,6 +3,7 @@
 // Figma structural verification wrapper
 const path = require('path');
 const { boot } = require('../boot');
+const { formatFigmaDrift } = require('../lib/figma-report');
 
 async function main() {
   const args = process.argv.slice(2);
@@ -35,9 +36,7 @@ async function main() {
     console.log(`  \u2713 ${arr[1] || 'All nodes within tolerance'}`);
   } else {
     console.error('  \u2717 Structural drift detected:');
-    for (let i = 1; i < arr.length; i++) {
-      console.error(`    ${JSON.stringify(arr[i])}`);
-    }
+    for (const line of formatFigmaDrift($, arr[1])) console.error(`    - ${line}`);
     process.exitCode = 1;
   }
 }

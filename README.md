@@ -4,6 +4,24 @@
 
 ---
 
+> **New here?** Watch the [4-minute narrated walkthrough](docs/video/witness-tutorial.mp4)
+> or follow [`docs/TUTORIAL.md`](docs/TUTORIAL.md). Both cover every step, with the output
+> you should expect.
+
+### Where does it run?
+
+- **Proofs run at build time, in Node.js 20+** (macOS or Linux, locally or in CI).
+  Shen runs in-process through the vendored ShenScript, and text is measured on
+  `node-canvas`, so you need no Shen install and no browser.
+- **What you ship has no proofs in it.** You get static HTML (`witness render`),
+  an Astro site (`witness/astro`), or typed React/TSX from the emitter. The
+  pure proof core can also be tree-shaken to run on any Shen port.
+- **The ruler uses the build machine's fonts.** Generic `sans-serif` is
+  Helvetica/Arial on macOS and DejaVu Sans on Linux, so pixel counts differ
+  between the two (the verdicts in these examples don't). To measure what
+  users see, pin real font files in `.witness/fonts.json`
+  ([details](docs/TUTORIAL.md#fonts-the-one-environment-detail-that-changes-numbers)).
+
 ## Quick start
 
 ```bash
@@ -17,15 +35,17 @@ node cli/check.js dev examples/card-overflow.shen
 # Render layout to static HTML
 node cli/check.js render examples/card.shen --output card.html
 
-# Tier 3: diff computed layout against a Figma export
+# Tier 3 (WIP): diff computed layout against a Figma export (reports drift on the bundled fixture)
 node cli/check.js check --figma examples/card-design.json examples/card.shen
 
 # Agent: parse structured overflow errors and auto-widen containers
-node cli/agent.js examples/card-overflow.shen
+# (it rewrites the file in place, so work on a copy)
+cp examples/card-overflow.shen /tmp/fix-me.shen && node cli/agent.js /tmp/fix-me.shen
 
 # Tier 2: numeric bounds on the layout math downstream of the proofs
 ./node_modules/.bin/fr examples/ts/grid-layout.ts          # clean — 7/7 analyzed
-./node_modules/.bin/fr examples/ts/grid-layout-broken.ts   # one range error, caught
+# the broken file is excluded from tsconfig.json, so analyze it from a neutral dir:
+(cd "$(mktemp -d)" && "$OLDPWD/node_modules/.bin/fr" "$OLDPWD/examples/ts/grid-layout-broken.ts")  # one range error, caught
 bash docs/freerange-demo.sh                                # the 60-second tour
 ```
 

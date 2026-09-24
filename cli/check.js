@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { boot } = require('../boot');
+const { formatFigmaDrift } = require('../lib/figma-report');
 
 const HELP = `Usage: witness <command> [options] [files...]
 
@@ -233,9 +234,7 @@ and specs/design/README.md (Extending the system).
         console.log(`  \u2713 ${arr[1] || 'All nodes within tolerance'}`);
       } else {
         console.error('  \u2717 Figma verification failed: structural drift detected');
-        for (let i = 1; i < arr.length; i++) {
-          console.error(`    ${JSON.stringify(arr[i])}`);
-        }
+        for (const line of formatFigmaDrift($, arr[1])) console.error(`    - ${line}`);
         process.exitCode = 1;
       }
     } catch (err) {
