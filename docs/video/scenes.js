@@ -11,8 +11,6 @@
 
 const OUT = process.env.WITNESS_VIDEO_TMP || '/tmp/witness-video';
 
-const lastLines = n => out => out.split('\n').filter(Boolean).slice(-n).join('\n');
-
 module.exports = (ctx) => [
   {
     id: 'intro',
@@ -72,7 +70,7 @@ module.exports = (ctx) => [
     title: 'Install',
     commands: [
       { show: 'git clone https://github.com/pyrex41/witness && cd witness', display: "Cloning into 'witness'...", at: 0 },
-      { run: 'npm install --no-fund 2>&1', show: 'npm install', filter: lastLines(2), at: 0 },
+      { run: 'npm install --no-fund --no-audit 2>&1', show: 'npm install', filter: out => out.split('\n').filter(l => /up to date|added \d+|changed \d+/.test(l)).join('\n'), at: 0 },
       { run: 'npm test 2>&1 | grep -E "[0-9]+ passed, [0-9]+ failed"', show: 'npm test', at: 2 },
     ],
     narration: [
